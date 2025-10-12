@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 import requests
 from requests.cookies import create_cookie
 import concurrent.futures
-from config import REQUEST_TIMEOUT, TEXT_MAX_WORKERS, REQUEST_DELAY, BETWEEN_PAGES_DELAY, COMMENT_REQUEST_DELAY, COMMENT_MAX_WORKERS
+from config import REQUEST_TIMEOUT, TEXT_MAX_WORKERS, REQUEST_DELAY, BETWEEN_PAGES_DELAY, COMMENT_REQUEST_DELAY, L2_COMMENT_REQUEST_DELAY, COMMENT_MAX_WORKERS
 
 # 默认User-Agent和产品信息，固定在此文件中
 DEFAULT_USER_AGENT = "LOFTER-Android 7.6.12 (V2272A; Android 13; null) WIFI"
@@ -60,10 +60,12 @@ class LofterClient:
            self.ntes_sess = cookies.get("NTES_SESS")
            self.authorization = cookies.get("Authorization")
            self.lofter_sess = cookies.get("LOFTER_SESS")
-           # Set cookies on the session for general requests
+           # Set all cookies on the session for general requests, but for subscription
+           # requests we'll use specific authentication headers instead
            for name, value in cookies.items():
-               cookie = create_cookie(domain=".lofter.com", name=name, value=value)
-               self.session.cookies.set_cookie(cookie)
+               if value:  # Only set non-empty cookie values
+                   cookie = create_cookie(domain=".lofter.com", name=name, value=value)
+                   self.session.cookies.set_cookie(cookie)
 
     def _log(self, message):
         if self.debug:
@@ -86,29 +88,61 @@ class LofterClient:
            if key in request_headers:
                del request_headers[key]
 
-       # Log the cookies that will be sent with the request
-       cookies_to_send = dict(self.session.cookies)
-       self._log(f"Request Headers: {request_headers}")
-       self._log(f"Request Cookies: {cookies_to_send}")
+       # 根据选中的cookie类型决定如何处理cookies
+       from utils.cookie_manager import load_cookies
+       cookie_config = load_cookies()
+       selected_cookie_type = cookie_config.get("selected_cookie_type", None)
+       original_cookies = None
+       should_restore_cookies = False
 
-       for attempt in range(max_retries):
-           try:
-               if method.upper() == "GET":
-                   response = self.session.get(url, params=params, headers=request_headers, timeout=REQUEST_TIMEOUT)
-               else:
-                   response = self.session.post(url, data=data, headers=request_headers, timeout=REQUEST_TIMEOUT)
-               
-               self._log(f"Response Status: {response.status_code}")
-               self._log(f"Response Body: {response.text[:500]}...")  # Limit body output to prevent too much text
-               response.raise_for_status()
-               json_response = response.json()
-               self._log("Successfully decoded JSON response.")
-               return json_response
-           except (requests.RequestException, json.JSONDecodeError) as e:
-               self._log(f"Request to {url} failed (attempt {attempt + 1}/{max_retries}): {e}")
-               if 'response' in locals() and hasattr(response, 'text'):
-                   self._log(f"Response text on error: {response.text[:500]}...")
-               time.sleep(2 ** attempt)
+       # 如果指定了特定类型的认证请求，则临时调整cookies
+       if selected_cookie_type and url != SUBSCRIPTION_URL:  # 订阅请求已由get_subs单独处理
+           original_cookies = dict(self.session.cookies)
+           should_restore_cookies = True
+           
+           # 清除session中的cookies，使用选中的认证类型
+           self.session.cookies.clear()
+           
+           # 只添加选中的cookie类型
+           if selected_cookie_type in original_cookies:
+               selected_cookie_value = original_cookies[selected_cookie_type]
+               from requests.cookies import create_cookie
+               cookie = create_cookie(domain=".lofter.com", name=selected_cookie_type, value=selected_cookie_value)
+               self.session.cookies.set_cookie(cookie)
+
+       try:
+           # Log the cookies that will be sent with the request
+           cookies_to_send = dict(self.session.cookies)
+           self._log(f"Request Headers: {request_headers}")
+           self._log(f"Request Cookies: {cookies_to_send}")
+
+           for attempt in range(max_retries):
+               try:
+                   if method.upper() == "GET":
+                       response = self.session.get(url, params=params, headers=request_headers, timeout=REQUEST_TIMEOUT)
+                   else:
+                       response = self.session.post(url, data=data, headers=request_headers, timeout=REQUEST_TIMEOUT)
+                   
+                   self._log(f"Response Status: {response.status_code}")
+                   self._log(f"Response Body: {response.text[:500]}...")  # Limit body output to prevent too much text
+                   response.raise_for_status()
+                   json_response = response.json()
+                   self._log("Successfully decoded JSON response.")
+                   return json_response
+               except (requests.RequestException, json.JSONDecodeError) as e:
+                   self._log(f"Request to {url} failed (attempt {attempt + 1}/{max_retries}): {e}")
+                   if 'response' in locals() and hasattr(response, 'text'):
+                       self._log(f"Response text on error: {response.text[:500]}...")
+                   time.sleep(2 ** attempt)
+       finally:
+           # 恢复原始cookies
+           if should_restore_cookies and original_cookies is not None:
+               self.session.cookies.clear()
+               for name, value in original_cookies.items():
+                   from requests.cookies import create_cookie
+                   cookie = create_cookie(domain=".lofter.com", name=name, value=value)
+                   self.session.cookies.set_cookie(cookie)
+                   
        return None
 
     def fetch_posts_by_tag(self, tag, list_type="total", timelimit="", blog_type=""):
@@ -225,112 +259,299 @@ class LofterClient:
     def _fetch_l2_comments_single(self, post_id, blog_id, comment_id):
         """Single attempt to fetch L2 comments (replies) for an L1 comment."""
         params = {"postId": post_id, "blogId": blog_id, "id": comment_id, "offset": 0, "fromSrc": "", "fromId": ""}
+        # 在请求之前添加延迟
+        time.sleep(L2_COMMENT_REQUEST_DELAY)
         response = self._make_request("GET", L2_COMMENTS_URL, params=params)
         return response
 
-    def fetch_all_comments_for_post(self, post_id, blog_id, return_structure=False):
+    def fetch_all_comments_for_post(self, post_id, blog_id, return_structure=False, max_retries=3, mode='comment', name=''):
         """Fetches all comments for a post, including replies, using improved method based on deepseek implementation."""
-        self._log(f"Fetching comments for post {post_id}")
-        offset = 0
-        all_comments = []
-        page = 1
-        
-        # Fetch L1 comments using pagination until no more data
-        while True:
-            params = {
-                "postId": post_id,
-                "blogId": blog_id,
-                "offset": offset,
-                "product": "lofter-android-8.2.18",
-                "needGift": 0,
-                "openFansVipPlan": 0,
-                "dunType": 1
-            }
-            
-            response = self._make_request("GET", L1_COMMENTS_URL, params=params)
-
-            if not response or response.get("code") != 0 or "data" not in response:
-                self._log(f"Failed to fetch L1 comments for post {post_id} (page {page})")
-                break
-
-            # Check if we have the expected structure
-            if "data" not in response:
-                self._log("Unexpected L1 comments structure")
-                break
-            
-            # Combine normal comments and hot comments
-            normal_comments = response["data"].get("list", [])
-            hot_comments = response["data"].get("hotList", [])
-            page_comments = normal_comments + hot_comments
-            
-            # If this page has no comments, we've retrieved all data
-            if not page_comments:
-                self._log(f"No comments found on page {page}, stopping")
-                break
-            
-            # Add to all comments
-            all_comments.extend(page_comments)
-            
-            # Log comment counts
-            self._log(f"Page {page}: {len(normal_comments)} normal + {len(hot_comments)} hot = {len(page_comments)} comments")
-            
-            # Check if there are more pages
-            next_offset = response["data"].get("offset", -1)
-            if next_offset == -1:
-                self._log("No more pages available (offset = -1)")
-                break
+        for attempt in range(max_retries):
+            try:
+                self._log(f"Fetching comments for post {post_id} (attempt {attempt + 1}/{max_retries})")
+                offset = 0
+                all_comments = []
+                page = 1
                 
-            offset = next_offset
-            self._log(f"Moving to next page with offset: {offset}")
-            
-            # Increment page counter
-            page += 1
-            
-            # Add a small delay between pages to avoid rate limiting
-            time.sleep(COMMENT_REQUEST_DELAY)
-        
-        self._log(f"Total L1 comments collected: {len(all_comments)} from {page-1} pages")
-        
-        if not all_comments:
-            return "" if not return_structure else []
-        
-        # If return_structure is True, return structured data instead of formatted text
-        if return_structure:
-            # First, fetch all L2 comments and map them to their L1 comments
-            comments_with_replies = []
-            with concurrent.futures.ThreadPoolExecutor(max_workers=COMMENT_MAX_WORKERS) as executor:  # Reduced workers to avoid rate limiting
-                future_to_comment = {
-                    executor.submit(self._process_l1_comment_with_replies, post_id, blog_id, c): c
-                    for c in all_comments if "id" in c
+                # Fetch L1 comments using pagination until no more data
+                while True:
+                    params = {
+                        "postId": post_id,
+                        "blogId": blog_id,
+                        "offset": offset,
+                        "product": "lofter-android-8.2.18",
+                        "needGift": 0,
+                        "openFansVipPlan": 0,
+                        "dunType": 1
+                    }
+                    
+                    response = self._make_request("GET", L1_COMMENTS_URL, params=params)
+
+                    if not response or response.get("code") != 0 or "data" not in response:
+                        self._log(f"Failed to fetch L1 comments for post {post_id} (page {page})")
+                        break
+
+                    # Check if we have the expected structure
+                    if "data" not in response:
+                        self._log("Unexpected L1 comments structure")
+                        break
+                    
+                    # Separate hot comments and normal comments to avoid duplicates
+                    normal_comments = response["data"].get("list", [])
+                    hot_comments = response["data"].get("hotList", [])
+                    
+                    # Create a set of comment IDs to avoid duplicates when combining
+                    comment_ids = set()
+                    unique_page_comments = []
+                    
+                    # Add hot comments first (they are typically more important)
+                    for comment in hot_comments:
+                        comment_id = comment.get("id")
+                        if comment_id and comment_id not in comment_ids:
+                            comment["is_hot_comment"] = True  # Mark as hot comment
+                            unique_page_comments.append(comment)
+                            comment_ids.add(comment_id)
+                    
+                    # Add normal comments that aren't already in the list
+                    for comment in normal_comments:
+                        comment_id = comment.get("id")
+                        if comment_id and comment_id not in comment_ids:
+                            comment["is_hot_comment"] = False  # Mark as normal comment
+                            unique_page_comments.append(comment)
+                            comment_ids.add(comment_id)
+                    
+                    # If this page has no unique comments, we've retrieved all data
+                    if not unique_page_comments:
+                        self._log(f"No unique comments found on page {page}, stopping")
+                        break
+                    
+                    # Add unique comments to all comments
+                    all_comments.extend(unique_page_comments)
+                    
+                    # Log comment counts
+                    self._log(f"Page {page}: {len(normal_comments)} normal + {len(hot_comments)} hot = {len(unique_page_comments)} unique comments")
+                    
+                    # Check if there are more pages
+                    next_offset = response["data"].get("offset", -1)
+                    if next_offset == -1:
+                        self._log("No more pages available (offset = -1)")
+                        break
+                        
+                    offset = next_offset
+                    self._log(f"Moving to next page with offset: {offset}")
+                    
+                    # Increment page counter
+                    page += 1
+                    
+                    # Add a small delay between pages to avoid rate limiting
+                    time.sleep(COMMENT_REQUEST_DELAY)
+                
+                self._log(f"Total L1 comments collected: {len(all_comments)} from {page-1} pages")
+                
+                # Create structured data with separate hot and normal comments
+                structured_comments = {
+                    "hot_list": [comment for comment in all_comments if comment.get("is_hot_comment", False)],
+                    "all_list": all_comments
                 }
                 
-                for future in concurrent.futures.as_completed(future_to_comment):
-                    try:
-                        result = future.result()
-                        if result:  # Only add if we have a result
-                            comments_with_replies.append(result)
-                    except Exception as e:
-                        self._log(f"Error processing comment: {str(e)}")
-            
-            return comments_with_replies
-        else:
-            # Original behavior - return formatted text
-            comments_text = ""
-            with concurrent.futures.ThreadPoolExecutor(max_workers=COMMENT_MAX_WORKERS) as executor:  # Reduced workers to avoid rate limiting
-                future_to_comment = {
-                    executor.submit(self._process_l1_comment_with_replies, post_id, blog_id, c): c
-                    for c in all_comments if "id" in c
-                }
+                if not all_comments:
+                    return "" if not return_structure else []
                 
-                for future in concurrent.futures.as_completed(future_to_comment):
-                    try:
-                        result = future.result()
-                        if result:  # Only add text if we have a result
-                            comments_text += self._format_comment_with_replies_text(result)
-                    except Exception as e:
-                        self._log(f"Error processing comment: {str(e)}")
+                # If return_structure is True, return structured data instead of formatted text
+                if return_structure:
+                    # Process hot comments
+                    hot_comments_with_replies = []
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=COMMENT_MAX_WORKERS) as executor:
+                        future_to_comment = {
+                            executor.submit(self._process_l1_comment_with_replies, post_id, blog_id, c): c
+                            for c in structured_comments["hot_list"] if "id" in c
+                        }
+                        
+                        for future in concurrent.futures.as_completed(future_to_comment):
+                            try:
+                                result = future.result()
+                                if result:  # Only add if we have a result
+                                    hot_comments_with_replies.append(result)
+                            except Exception as e:
+                                self._log(f"Error processing hot comment: {str(e)}")
+                    
+                    # Process all comments
+                    all_comments_with_replies = []
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=COMMENT_MAX_WORKERS) as executor:
+                        future_to_comment = {
+                            executor.submit(self._process_l1_comment_with_replies, post_id, blog_id, c): c
+                            for c in structured_comments["all_list"] if "id" in c
+                        }
+                        
+                        for future in concurrent.futures.as_completed(future_to_comment):
+                            try:
+                                result = future.result()
+                                if result:  # Only add if we have a result
+                                    all_comments_with_replies.append(result)
+                            except Exception as e:
+                                self._log(f"Error processing all comment: {str(e)}")
+                    
+                    # Create final structured result
+                    structured_result = {
+                        "hot_list": hot_comments_with_replies,
+                        "all_list": all_comments_with_replies
+                    }
+                    
+                    # Save original HTTP JSON responses to JSON directory
+                    self._save_original_responses(post_id, blog_id, structured_result, mode, name)
+                    
+                    return structured_result
+                else:
+                    # Format hot comments first
+                    hot_comments_text = "[热门评论]\n"
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=COMMENT_MAX_WORKERS) as executor:
+                        future_to_comment = {
+                            executor.submit(self._process_l1_comment_with_replies, post_id, blog_id, c): c
+                            for c in structured_comments["hot_list"] if "id" in c
+                        }
+                        
+                        for future in concurrent.futures.as_completed(future_to_comment):
+                            try:
+                                result = future.result()
+                                if result:  # Only add if we have a result
+                                    hot_comments_text += self._format_comment_with_replies_text(result)
+                            except Exception as e:
+                                self._log(f"Error processing hot comment: {str(e)}")
+                                
+                    # Format all comments next
+                    all_comments_text = "[全部评论]\n"
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=COMMENT_MAX_WORKERS) as executor:
+                        future_to_comment = {
+                            executor.submit(self._process_l1_comment_with_replies, post_id, blog_id, c): c
+                            for c in structured_comments["all_list"] if "id" in c
+                        }
+                        
+                        for future in concurrent.futures.as_completed(future_to_comment):
+                            try:
+                                result = future.result()
+                                if result:  # Only add if we have a result
+                                    all_comments_text += self._format_comment_with_replies_text(result)
+                            except Exception as e:
+                                self._log(f"Error processing all comment: {str(e)}")
+                    
+                    # Combine both texts
+                    comments_text = hot_comments_text + "\n" + all_comments_text
+                    
+                    return comments_text
+                    
+            except Exception as e:
+                self._log(f"Error fetching comments for post {post_id} (attempt {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 2  # Exponential backoff: 2, 4, 6 seconds
+                    self._log(f"Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                else:
+                    self._log(f"All retry attempts failed for post {post_id}. Returning empty result.")
+                    return "" if not return_structure else []
+                    
+    def _save_original_responses(self, post_id, blog_id, structured_result, mode='comment', name=''):
+        """保存原始的HTTP JSON响应到JSON目录，根据模式选择路径"""
+        import os
+        from utils.path_manager import path_manager
+        
+        try:
+            # 根据不同模式选择不同的目录结构
+            if mode == 'blog':
+                # json/blog/comments
+                json_dir = path_manager.get_json_dir(mode, name or '', 'comments')
+                filename = f"comments_{post_id}_{blog_id}.json"
+            elif mode == 'tag':
+                # json/tag/tag名字/comments
+                json_dir = path_manager.get_json_dir(mode, name or 'default_tag_name', 'comments')
+                filename = f"comments_{post_id}_{blog_id}.json"
+            elif mode == 'collection':
+                # json/collection/collection名字/comments
+                json_dir = path_manager.get_json_dir(mode, name or 'default_collection_name', 'comments')
+                filename = f"comments_{post_id}_{blog_id}.json"
+            elif mode == 'comment':
+                # json/comments
+                json_dir = path_manager.get_json_dir(mode, name or '', 'comments')
+                filename = f"comments_{post_id}_{blog_id}.json"
+            elif mode == 'update':
+                # json/update/comments
+                json_dir = path_manager.get_json_dir(mode, name or '', 'comments')
+                filename = f"comments_{post_id}_{blog_id}.json"
+            else:
+                # 默认情况
+                json_dir = path_manager.get_json_dir('comment', name or '', 'comments')
+                filename = f"comments_{post_id}_{blog_id}.json"
+                
+            filepath = os.path.join(json_dir, filename)
             
-            return comments_text
+            # 保存完整的结构化结果
+            os.makedirs(json_dir, exist_ok=True)
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(structured_result, f, ensure_ascii=False, indent=2)
+                
+            self._log(f"Saved original comment responses to {filepath}")
+            
+            # 同时保存为用户要求的格式
+            self._save_comments_in_user_format(post_id, blog_id, structured_result, mode, name)
+        except Exception as e:
+            self._log(f"Error saving original responses: {str(e)}")
+            
+    def _save_comments_in_user_format(self, post_id, blog_id, structured_result, mode='comment', name=''):
+        """按照用户要求的格式保存评论，根据模式选择路径"""
+        import os
+        from utils.path_manager import path_manager
+        
+        try:
+            # 根据不同模式选择不同的目录结构
+            if mode == 'blog':
+                # json/blog/comments
+                json_dir = path_manager.get_json_dir(mode, name or '', 'comments')
+                filename = f"comments_formatted_{post_id}_{blog_id}.txt"
+            elif mode == 'tag':
+                # json/tag/tag名字/comments
+                json_dir = path_manager.get_json_dir(mode, name or 'default_tag_name', 'comments')
+                filename = f"comments_formatted_{post_id}_{blog_id}.txt"
+            elif mode == 'collection':
+                # json/collection/collection名字/comments
+                json_dir = path_manager.get_json_dir(mode, name or 'default_collection_name', 'comments')
+                filename = f"comments_formatted_{post_id}_{blog_id}.txt"
+            elif mode == 'comment':
+                # json/comments
+                json_dir = path_manager.get_json_dir(mode, name or '', 'comments')
+                filename = f"comments_formatted_{post_id}_{blog_id}.txt"
+            elif mode == 'update':
+                # json/update/comments
+                json_dir = path_manager.get_json_dir(mode, name or '', 'comments')
+                filename = f"comments_formatted_{post_id}_{blog_id}.txt"
+            else:
+                # 默认情况
+                json_dir = path_manager.get_json_dir('comment', name or '', 'comments')
+                filename = f"comments_formatted_{post_id}_{blog_id}.txt"
+                
+            filepath = os.path.join(json_dir, filename)
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                # 遍历所有评论（包含热门评论和普通评论）
+                all_comments = structured_result.get("all_list", [])
+                
+                for comment in all_comments:
+                    comment_id = comment.get("id", "unknown")
+                    content = comment.get("content", "")
+                    f.write(f"[l1 {comment_id}]\n")
+                    f.write(f"{content}\n")
+                    
+                    # 处理L2回复
+                    replies = comment.get("replies", [])
+                    for reply in replies:
+                        reply_id = reply.get("id", "unknown")
+                        reply_content = reply.get("content", "")
+                        f.write(f"   [l2 {reply_id}]\n")
+                        f.write(f"    {reply_content}\n")
+                    
+                    f.write("\n")
+                
+            self._log(f"Saved comments in user format to {filepath}")
+        except Exception as e:
+            self._log(f"Error saving comments in user format: {str(e)}")
 
     def _process_l1_comment_with_replies(self, post_id, blog_id, l1_comment):
         """Process a single L1 comment and get its L2 replies."""
@@ -477,7 +698,40 @@ class LofterClient:
            self._log(f"Photo download request: GET {url}")
            self._log(f"Photo download headers: {headers}")
            self._log(f"Photo download cookies: {cookies_to_send}")
-           response = self.session.get(url, headers=headers, stream=True, timeout=20)
+           
+           # 根据选中的cookie类型决定如何处理cookies（对于图片下载可能不需要认证，但仍按规则处理）
+           from utils.cookie_manager import load_cookies
+           cookie_config = load_cookies()
+           selected_cookie_type = cookie_config.get("selected_cookie_type", None)
+           original_cookies = None
+           should_restore_cookies = False
+
+           # 如果指定了特定类型的认证请求，则临时调整cookies
+           if selected_cookie_type:
+               original_cookies = dict(self.session.cookies)
+               should_restore_cookies = True
+               
+               # 清除session中的cookies，使用选中的认证类型
+               self.session.cookies.clear()
+               
+               # 只添加选中的cookie类型
+               if selected_cookie_type in original_cookies:
+                   selected_cookie_value = original_cookies[selected_cookie_type]
+                   from requests.cookies import create_cookie
+                   cookie = create_cookie(domain=".lofter.com", name=selected_cookie_type, value=selected_cookie_value)
+                   self.session.cookies.set_cookie(cookie)
+
+           try:
+               response = self.session.get(url, headers=headers, stream=True, timeout=20)
+           finally:
+               # 恢复原始cookies
+               if should_restore_cookies and original_cookies is not None:
+                   self.session.cookies.clear()
+                   for name, value in original_cookies.items():
+                       from requests.cookies import create_cookie
+                       cookie = create_cookie(domain=".lofter.com", name=name, value=value)
+                       self.session.cookies.set_cookie(cookie)
+                       
            self._log(f"Photo download response status: {response.status_code}")
            if response.status_code == 200:
                with open(filepath, 'wb') as f:
@@ -499,6 +753,40 @@ class LofterClient:
            'Accept-Encoding': "br,gzip",
            'content-type': "application/x-www-form-urlencoded; charset=utf-8",
        }
+       
+       # 添加认证头，使用选中的cookie类型
+       from utils.cookie_manager import load_cookies
+       cookie_config = load_cookies()
+       cookies = cookie_config.get("cookies", {})
+       selected_cookie_type = cookie_config.get("selected_cookie_type", None)
+       
+       # 根据选中的类型添加认证头
+       if selected_cookie_type:
+           if selected_cookie_type == 'LOFTER-PHONE-LOGIN-AUTH' and cookies.get(selected_cookie_type):
+               headers['lofter-phone-login-auth'] = cookies[selected_cookie_type]
+           elif selected_cookie_type == 'NTES_SESS' and cookies.get(selected_cookie_type):
+               headers['Cookie'] = f"NTES_SESS={cookies[selected_cookie_type]}"
+           elif selected_cookie_type in cookies and cookies[selected_cookie_type]:
+               # 如果是其他类型的认证cookie，也尝试添加
+               headers[selected_cookie_type] = cookies[selected_cookie_type]
+       else:
+           # 如果没有选中的类型，尝试使用默认的认证方式
+           if cookies.get('LOFTER-PHONE-LOGIN-AUTH'):
+               headers['lofter-phone-login-auth'] = cookies['LOFTER-PHONE-LOGIN-AUTH']
+           elif self.auth_key:
+               headers['lofter-phone-login-auth'] = self.auth_key
+           if cookies.get('NTES_SESS'):
+               cookie_parts = []
+               if headers.get('Cookie'):
+                   cookie_parts.append(headers['Cookie'])
+               cookie_parts.append(f"NTES_SESS={cookies['NTES_SESS']}")
+               headers['Cookie'] = "; ".join(cookie_parts)
+           elif self.ntes_sess:
+               cookie_parts = []
+               if headers.get('Cookie'):
+                   cookie_parts.append(headers['Cookie'])
+               cookie_parts.append(f"NTES_SESS={self.ntes_sess}")
+               headers['Cookie'] = "; ".join(cookie_parts)
        
        try:
            # Log the cookies that will be sent with the request (from session)
@@ -527,53 +815,45 @@ class LofterClient:
 
     def fetch_subscription_collections(self, limit=50):
        """Fetches all subscription collections from user's subscriptions."""
+       # 重新实现此方法以使用get_subs方法，确保只发送选中的cookie类型
        all_collections = []
        offset = 0
        total_expected = float('inf')  # Will update from response
        
-       while len(all_collections) < total_expected:
-           headers = {}
-           cookie_parts = []
-           if self.auth_key:
-               headers['lofter-phone-login-auth'] = self.auth_key
-               cookie_parts.append(f"LOFTER-PHONE-LOGIN-AUTH={self.auth_key}")
-           if self.ntes_sess:
-               cookie_parts.append(f"NTES_SESS={self.ntes_sess}")
-           if self.authorization:
-               headers['Authorization'] = self.authorization
-               cookie_parts.append(f"Authorization={self.authorization}")
-           if self.lofter_sess:
-               cookie_parts.append(f"LOFTER_SESS={self.lofter_sess}")
-           if cookie_parts:
-               headers['Cookie'] = "; ".join(cookie_parts)
+       # 使用get_subs方法，它会正确处理选中的cookie类型
+       response = self.get_subs(None, offset, limit)
+       if not response:
+           return []
+           
+       data = response.get('data')
+       if not data:
+           return []
+           
+       # Update total expected count and offset
+       if 'subscribeCollectionCount' in data:
+           total_expected = data['subscribeCollectionCount']
+       
+       if 'offset' in data:
+           offset = data['offset']
+       
+       # Extract collections from response
+       collections = data.get("collections", [])
+       all_collections.extend(collections)
 
-           # Log the headers and cookies being used for subscription request
-           if self.debug:
-               self._log(f"Subscription request headers: {headers}")
-               self._log(f"Subscription request cookies: {'; '.join(cookie_parts) if cookie_parts else 'None'}")
+       # 获取剩余的集合
+       if total_expected > limit:
+           for i in range(limit, total_expected, limit):
+               response = self.get_subs(None, i, limit)
+               if not response:
+                   break
+               data = response.get('data')
+               if not data:
+                   break
+               collections = data.get("collections", [])
+               all_collections.extend(collections)
+               if len(collections) < limit:
+                   break  # 没有更多数据了
 
-           params = { 'offset': offset, 'limit': limit }
-           response = self._make_request("GET", SUBSCRIPTION_URL, params=params, headers=headers)
-           
-           response_data = response.get("data") if response else None
-           if not response_data:
-               break
-               
-           # Update total expected count and offset
-           if 'subscribeCollectionCount' in response_data:
-               total_expected = response_data['subscribeCollectionCount']
-           
-           if 'offset' in response_data:
-               offset = response_data['offset']
-           
-           # Extract collections from response
-           collections = response_data.get("collections", [])
-           all_collections.extend(collections)
-
-           # Break if no more collections returned or we've reached the expected total
-           if not collections or len(collections) < limit or len(all_collections) >= total_expected:
-               break
-           
        return all_collections
 
     def fetch_subscription_posts(self, limit=50):
@@ -595,3 +875,177 @@ class LofterClient:
                "blogInfo": collection.get("blogInfo", {})
            })
        return posts_format
+
+    def get_subs(self, auth_info, offset=0, limit_once=50):
+       """获取订阅列表，需要登录信息(LOFTER-PHONE-LOGIN-AUTH和NTES_SESS)"""
+       # 确保auth_info不为None
+       if auth_info is None:
+           from utils.cookie_manager import load_cookies
+           cookie_config = load_cookies()
+           cookies = cookie_config.get("cookies", {})
+           selected_cookie_type = cookie_config.get("selected_cookie_type", None)
+            
+           # 只使用选中的cookie类型，如果没有选中则使用默认的LOFTER-PHONE-LOGIN-AUTH和NTES_SESS
+           if selected_cookie_type:
+               # 获取选中的cookie值
+               selected_value = cookies.get(selected_cookie_type, '')
+               if selected_cookie_type == 'LOFTER-PHONE-LOGIN-AUTH' or selected_cookie_type == 'NTES_SESS':
+                   # 如果选中的类型是支持的认证类型，只设置该值，其他设为空
+                   if selected_cookie_type == 'LOFTER-PHONE-LOGIN-AUTH':
+                       auth_info = {
+                           'LOFTER-PHONE-LOGIN-AUTH': selected_value,
+                           'NTES_SESS': ''
+                       }
+                   else:  # selected_cookie_type == 'NTES_SESS'
+                       auth_info = {
+                           'LOFTER-PHONE-LOGIN-AUTH': '',
+                           'NTES_SESS': selected_value
+                       }
+               else:
+                   # 如果选中的类型不是认证类型，使用默认的认证值
+                   auth_info = {
+                       'LOFTER-PHONE-LOGIN-AUTH': cookies.get('LOFTER-PHONE-LOGIN-AUTH', '') or self.auth_key or '',
+                       'NTES_SESS': cookies.get('NTES_SESS', '') or self.ntes_sess or ''
+                   }
+           else:
+               # 如果没有选中的cookie类型，使用默认的LOFTER-PHONE-LOGIN-AUTH和NTES_SESS
+               auth_info = {
+                   'LOFTER-PHONE-LOGIN-AUTH': cookies.get('LOFTER-PHONE-LOGIN-AUTH', '') or self.auth_key or '',
+                   'NTES_SESS': cookies.get('NTES_SESS', '') or self.ntes_sess or ''
+               }
+
+       # 检查认证信息是否有效
+       authkey = auth_info.get('LOFTER-PHONE-LOGIN-AUTH', '').strip()
+       ntes_sess = auth_info.get('NTES_SESS', '').strip()
+       
+       if not authkey and not ntes_sess:
+           self._log("错误: 认证信息缺失，无法获取订阅列表")
+           return None
+
+       # 设置请求参数
+       params = {
+           'offset': offset,
+           'limit': limit_once
+       }
+
+       headers = {
+           'User-Agent': DEFAULT_USER_AGENT,
+           'Accept-Encoding': "br,gzip",
+       }
+       
+       # 只设置有效的认证头
+       if authkey:
+           headers['lofter-phone-login-auth'] = authkey
+
+       # 只在必要时添加Cookie头，只包含选中的类型
+       cookie_parts = []
+       if authkey:
+           cookie_parts.append(f"LOFTER-PHONE-LOGIN-AUTH={authkey}")
+       if ntes_sess:
+           cookie_parts.append(f"NTES_SESS={ntes_sess}")
+       if cookie_parts:
+           headers['Cookie'] = "; ".join(cookie_parts)
+
+       # 对于订阅请求，我们只使用header中的认证信息，不使用session中的其他cookies
+       # 创建一个临时的session来避免发送不必要的cookies
+       original_cookies = dict(self.session.cookies)
+       # 清除session中的cookies，因为认证信息已通过headers提供
+       self.session.cookies.clear()
+       try:
+           response = self._make_request("GET", SUBSCRIPTION_URL, params=params, headers=headers)
+       finally:
+           # 恢复原始cookies以供其他请求使用
+           self.session.cookies.clear()
+           for name, value in original_cookies.items():
+               self.session.cookies.set(name, value)
+
+       if response and response.get('code') == 0:  # 成功响应
+           self._log("成功获取订阅列表")
+           return response
+       else:
+           # 如果响应包含错误信息，打印出来
+           if response:
+               error_msg = response.get('msg', 'Unknown error')
+               error_code = response.get('code', 'Unknown')
+               self._log(f"Subscription API error: {error_msg} (code: {error_code})")
+           else:
+               self._log("无法获取订阅列表: 请求失败或无响应")
+           return None
+
+    def save_subscription_list(self, auth_info, save_path='./results', sleep_time=0.1, limit_once=50):
+       '''
+       保存订阅列表到 txt 文件和 json 文件
+
+       Args:
+       auth_info: 登录信息字典，包含LOFTER-PHONE-LOGIN-AUTH和NTES_SESS
+       save_path: 保存路径，默认为'./results'
+       sleep_time: 请求间隔，默认为0.1秒
+       limit_once: 次获取数量，默认为50
+       '''
+       # 为订阅模式使用专门的路径，实现隔离
+       # 使用空字符串作为 name 参数，将直接创建在 output/subscription 下
+       from utils.path_manager import path_manager
+       output_dir = path_manager.get_output_dir('subscription', '')
+       json_dir = path_manager.get_json_dir('subscription', 'subscription')
+       
+       import os
+       os.makedirs(save_path, exist_ok=True)  # 确保 ./results 目录存在
+
+       start = 0 # 起始位置
+       response = self.get_subs(auth_info, start)
+       if not response:
+           print("获取订阅列表失败")
+           return
+       data = response['data']
+       offset = data['offset'] # 结束位置
+       subscribeCollectionCount = data['subscribeCollectionCount']
+       collections = data['collections']
+
+       if subscribeCollectionCount > limit_once:
+           for i in range(limit_once, subscribeCollectionCount, limit_once):
+               time.sleep(sleep_time)
+               response = self.get_subs(auth_info, i, limit_once)
+               if response:
+                   data = response['data']
+                   collections += data['collections']
+
+       # 写入txt文件
+       # 直接在 output 目录下创建 subscription.txt 文件
+       txt_file_path = os.path.join('output', 'subscription.txt')
+       os.makedirs('output', exist_ok=True)
+       with open(txt_file_path, 'w', encoding='utf-8') as f:
+           f.write(f"订阅总数: {subscribeCollectionCount}\n")
+           f.write("="*50 + "\n")
+           for c in collections:
+               collection_id = c['collectionId']
+               if not c.get('valid', True):  # 如果没有valid字段，默认为True
+                   print(f'合集{collection_id}已失效')
+                   continue
+               collection_name = c['name']
+               f.write(f'合集名：{collection_name}\n')
+               f.write(f'合集ID：{collection_id}\n')
+               
+               # 只有当值存在且不为空时才写入
+               author_name = c.get('blogInfo', {}).get('blogNickName', '')
+               if author_name:
+                   f.write(f'作者：{author_name}\n')
+               collection_url = c.get('collectionUrl', '')
+               if collection_url:
+                   f.write(f'链接：{collection_url}\n')
+               f.write("-" * 30 + "\n")
+               print(f'合集名：{collection_name}，合集ID：{collection_id}')
+
+       print(f'订阅信息保存至 {txt_file_path}')
+       
+       # 保存为JSON文件到 ./results/subscription.json (用户期望的路径)
+       json_file_path = os.path.join(save_path, 'subscription.json')
+       with open(json_file_path, 'w', encoding='utf-8') as f:
+           json.dump(collections, f, ensure_ascii=False, indent=2)
+       print(f'订阅信息保存至 {json_file_path}')
+       
+       # 保存到用户要求的路径：./json/subscription.json
+       user_json_path = os.path.join('json', 'subscription.json')
+       os.makedirs('json', exist_ok=True)
+       with open(user_json_path, 'w', encoding='utf-8') as f:
+           json.dump(collections, f, ensure_ascii=False, indent=2)
+       print(f'订阅信息JSON保存至 {user_json_path}')

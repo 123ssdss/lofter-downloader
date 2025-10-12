@@ -34,17 +34,34 @@ class PathManager:
         获取JSON存储目录路径
         
         Args:
-            mode: 模式类型 ('tag', 'collection', 'blog', 'comment', 'subscription')
+            mode: 模式类型 ('tag', 'collection', 'blog', 'comment', 'subscription', 'update')
             name: 具体名称 (tag名称、collection名称等)
             sub_dir: 子目录名称 (如 'comments', 'blog' 等)
         """
-        if mode not in ['tag', 'collection', 'blog', 'comment', 'subscription']:
-            raise ValueError(f"Invalid mode: {mode}. Must be one of 'tag', 'collection', 'blog', 'comment', 'subscription'")
+        if mode not in ['tag', 'collection', 'blog', 'comment', 'subscription', 'update']:
+            raise ValueError(f"Invalid mode: {mode}. Must be one of 'tag', 'collection', 'blog', 'comment', 'subscription', 'update'")
         
-        if sub_dir:
-            json_dir = os.path.join(self.base_json_dir, mode, name, sub_dir)
+        if mode == 'blog':
+            # json/blog/comments
+            json_dir = os.path.join(self.base_json_dir, mode, sub_dir or 'comments')
+        elif mode == 'tag':
+            # json/tag/tag名字/comments
+            json_dir = os.path.join(self.base_json_dir, mode, name, sub_dir or 'comments')
+        elif mode == 'collection':
+            # json/collection/collection名字/comments
+            json_dir = os.path.join(self.base_json_dir, mode, name, sub_dir or 'comments')
+        elif mode == 'comment':
+            # json/comments
+            json_dir = os.path.join(self.base_json_dir, sub_dir or 'comments')
+        elif mode == 'update':
+            # json/update/comments
+            json_dir = os.path.join(self.base_json_dir, mode, sub_dir or 'comments')
         else:
-            json_dir = os.path.join(self.base_json_dir, mode, name)
+            # subscription模式或其他默认模式
+            if sub_dir:
+                json_dir = os.path.join(self.base_json_dir, mode, name, sub_dir)
+            else:
+                json_dir = os.path.join(self.base_json_dir, mode, name)
         
         os.makedirs(json_dir, exist_ok=True)
         return json_dir

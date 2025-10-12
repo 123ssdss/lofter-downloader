@@ -61,3 +61,9 @@ config_local.py
 .coverage
 htmlcov/
 .cov/
+
+
+start.bat
+out/
+outp/
+shit.py

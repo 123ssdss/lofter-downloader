@@ -11,10 +11,11 @@ from processors.subscription_processor import process_subscription
 from processors.comment_mode_processor import process_comment_mode
 from utils import format_time
 from utils.path_manager import path_manager
+from utils.cookie_manager import interactive_cookie_setup
 
 def main():
     parser = argparse.ArgumentParser(description="Lofter Crawler")
-    parser.add_argument("mode", choices=["tag", "blog", "comment", "collection", "subscription"], help="The mode to run the crawler in.")
+    parser.add_argument("mode", choices=["tag", "blog", "comment", "collection", "subscription", "cookie_setup"], help="The mode to run the crawler in.")
     parser.add_argument("value", nargs='*', default=None, help="The value for the selected mode (e.g., tag name(s), post ID, collection ID). Not used for subscription.")
     parser.add_argument("--blog_id", help="The blog ID (required for 'blog' and 'comment' modes).")
     parser.add_argument("--list_type", default="total", help="List type for tag mode.")
@@ -25,36 +26,29 @@ def main():
     parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
     
     args = parser.parse_args()
+    
+    # 如果选择的是 cookie_setup 模式，运行 cookie 设置向导
+    if args.mode == "cookie_setup":
+        interactive_cookie_setup()
+        return
 
-    # Load cookies and config from file
-    try:
-        with open("cookies.json", 'r') as f:
-            config_data = json.load(f)
-            # Handle both old format (only cookies) and new format (with selected_cookie_type)
-            if isinstance(config_data, dict):
-                cookies = config_data.get("cookies", config_data)  # Support both old and new formats
-                selected_cookie_type = config_data.get("selected_cookie_type", None)
-            else:
-                cookies = {}
-                selected_cookie_type = None
-    except FileNotFoundError:
-        cookies = {}
-        selected_cookie_type = None
-        print("Warning: cookies.json not found. Subscription mode will not work.")
+    # Load cookies from cookie.json file using the cookie manager
+    from utils.cookie_manager import load_cookies
+    cookie_config = load_cookies()
+    cookies = cookie_config.get("cookies", {})
+    selected_cookie_type = cookie_config.get("selected_cookie_type", None)
+    
+    # Check if cookies.json exists and has valid cookie values
+    if not any(cookies.values()):
+        print("Warning: No cookie values found in cookie.json. Subscription mode will not work.")
+        print("Use 'python main.py cookie_setup' to set up your cookies.")
 
-    # If a specific cookie type is configured and available, use only that cookie
-    if selected_cookie_type and selected_cookie_type in cookies:
-        filtered_cookies = {selected_cookie_type: cookies[selected_cookie_type]}
-        config = {
-            "cookies": filtered_cookies,
-            "debug": args.debug
-        }
-    else:
-        # Use all cookies if no specific type is selected or if selected type is not available
-        config = {
-            "cookies": cookies,
-            "debug": args.debug
-        }
+    # Use all cookies for the client initialization, regardless of selected_cookie_type
+    # This ensures all authentication tokens are available for different API calls
+    config = {
+        "cookies": cookies,
+        "debug": args.debug
+    }
 
     print("--- Lofter Crawler ---")
     if selected_cookie_type:
@@ -104,13 +98,13 @@ def main():
         if not args.blog_id or not args.value:
             print("Error: Both value (post ID) and --blog_id are required for comment mode.")
             return
-            
+             
         # 从args.value列表中获取post ID（因为nargs='*'返回一个列表）
         post_id = args.value[0] if args.value else None
         if not post_id:
             print("Error: Post ID is required for comment mode.")
             return
-            
+             
         print(f"Mode: Comment | Post ID: {post_id} | Blog ID: {args.blog_id}")
         # Use the new comment mode processor for proper isolation
         process_comment_mode(client, post_id, args.blog_id)
@@ -119,29 +113,24 @@ def main():
         if not args.value:
             print("Error: A value (collection ID) is required for collection mode.")
             return
-            
+             
         # 从args.value列表中获取collection ID（因为nargs='*'返回一个列表）
         collection_id = args.value[0] if args.value else None
         if not collection_id:
             print("Error: Collection ID is required for collection mode.")
             return
-            
+             
         print(f"Mode: Collection | ID: {collection_id}")
         # Don't clear global directories to maintain isolation between different tags/collections
         process_collection(client, collection_id, not args.no_comments, not args.no_photos)
 
     elif args.mode == "subscription":
         print("Mode: Subscription")
-        if not config["cookies"]:
-            print("Warning: No cookies found in cookies.json. This may cause the request to fail.")
-        
+            
         # Call the subscription processor instead of fetching posts directly
-        # This matches the expected behavior from the user's example
-        process_subscription(client, not args.no_comments,
-                           authkey=client.auth_key,
-                           ntes_sess=client.ntes_sess)
+        # The authentication keys will be handled internally by the LofterClient
+        process_subscription(client, not args.no_comments)
         return
-
 
     total_time = time.time() - start_time
     print("\n" + "=" * 50)

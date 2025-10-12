@@ -58,7 +58,7 @@ def process_comment_mode(client: LofterClient, post_url_or_id, blog_id=None):
     
     # 获取评论
     from processors.comment_processor import process_comments
-    comments_text = process_comments(client, post_id, blog_id)
+    comments_text = process_comments(client, post_id, blog_id, mode='comment')
     
     # 保存评论到comment模式的目录
     comments_dir = path_manager.get_json_dir('comment', 'posts', 'comments')

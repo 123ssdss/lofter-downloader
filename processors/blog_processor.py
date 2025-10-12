@@ -176,7 +176,12 @@ def process_post(client: LofterClient, post_meta, tag, download_comments=False, 
         post_id = post.get('id')
         blog_id = post.get('blogInfo', {}).get('blogId')
         if post_id and blog_id:
-            comments_text = process_comments(client, post_id, blog_id)
+            # 根据source_type确定模式
+            mode = source_type.split("-")[0] if "-" in source_type else source_type
+            mode = "blog" if mode in ["blog", "subscription"] else mode
+            mode = "tag" if mode == "tag-tag" else mode
+            mode = "collection" if mode == "collection-collection" else mode
+            comments_text = process_comments(client, post_id, blog_id, mode=mode, name=tag)
             # Save comments to the appropriate directory (only in json for non-comment modes)
             # Convert legacy source_type to new mode names for comment storage
             if source_type == "tag-tag":

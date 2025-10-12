@@ -24,18 +24,19 @@ MAX_RETRIES = 3
 # 基础请求延迟配置
 REQUEST_DELAY = 1  # 通用请求间隔时间（秒）
 TAG_POST_REQUEST_DELAY = 0.05  # 标签帖子请求间隔时间（秒）
-COLLECTION_REQUEST_DELAY = 0.2  # 合集请求间隔时间（秒）
-POST_DETAIL_REQUEST_DELAY = 0.1  # 帖子详情请求间隔时间（秒）
-COMMENT_REQUEST_DELAY = 0.5  # 评论请求间隔时间（秒）
+COLLECTION_REQUEST_DELAY = 0.01 # 合集请求间隔时间（秒）
+POST_DETAIL_REQUEST_DELAY = 0.005  # 帖子详情请求间隔时间（秒）
+COMMENT_REQUEST_DELAY = 0.05  # 评论请求间隔时间（秒）
+L2_COMMENT_REQUEST_DELAY = 1 # L2评论请求间隔时间（秒）
 BETWEEN_PAGES_DELAY = 0.5  # 页面间请求间隔时间（秒）
 BETWEEN_BATCHES_DELAY = 1.0  # 批处理间间隔时间（秒）
 
 # 并发配置
 PHOTO_MAX_WORKERS = 5
-TEXT_MAX_WORKERS = 8
-COMMENT_MAX_WORKERS = 6  # 评论处理的最大工作线程数
+TEXT_MAX_WORKERS = 10
+COMMENT_MAX_WORKERS = 5 # 评论处理的最大工作线程数
 
-# 数据处理配置
+# tag帖子配置
 DEFAULT_LIST_TYPE = "total"
 DEFAULT_TIME_LIMIT = ""
 DEFAULT_BLOG_TYPE = "1"
