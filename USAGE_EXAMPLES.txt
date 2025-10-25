@@ -1,0 +1,406 @@
+================================================================
+重构后评论模块使用示例
+================================================================
+
+================================================================
+一、基础使用（推荐方式）
+================================================================
+
+【示例1: 获取并格式化评论】
+from network import LofterClient
+from processors.comment_processor_refactored import process_comments
+
+# 创建客户端
+cookies = {
+    "LOFTER-PHONE-LOGIN-AUTH": "your_token",
+    # ... 其他cookies
+}
+client = LofterClient(cookies=cookies, debug=True)
+
+# 获取评论
+post_id = "1e8d5a0b_1234567"
+blog_id = "testblog"
+comments_text = process_comments(client, post_id, blog_id, mode='tag', name='art')
+
+print(comments_text)
+
+
+【示例2: 处理单个帖子的评论模式】
+from network import LofterClient
+from processors.comment_mode_processor_refactored import process_comment_mode
+
+client = LofterClient(cookies=cookies)
+
+# 使用URL
+post_url = "https://testblog.lofter.com/post/1e8d5a0b_1234567"
+process_comment_mode(client, post_url)
+
+# 或者直接使用ID
+process_comment_mode(client, "1e8d5a0b_1234567", blog_id="testblog")
+
+
+================================================================
+二、高级使用（模块化方式）
+================================================================
+
+【示例3: 分步处理评论】
+from network import LofterClient
+from processors.comment_fetcher import CommentFetcher
+from processors.comment_formatter import CommentFormatter
+from processors.comment_saver import CommentSaver
+
+client = LofterClient(cookies=cookies, debug=True)
+
+# 步骤1: 获取评论数据
+fetcher = CommentFetcher(client)
+structured_comments = fetcher.fetch_all_comments(post_id, blog_id)
+
+# 查看评论数量
+hot_count = len(structured_comments.get("hot_list", []))
+all_count = len(structured_comments.get("all_list", []))
+print(f"热门评论: {hot_count} 条")
+print(f"全部评论: {all_count} 条")
+
+# 步骤2: 保存评论
+saver = CommentSaver(client)
+saver.save_comments(post_id, blog_id, structured_comments, mode='tag', name='art')
+
+# 步骤3: 格式化评论
+formatter = CommentFormatter()
+formatted_text = formatter.format_comments(structured_comments)
+print(formatted_text)
+
+
+【示例4: 自定义格式化】
+from processors.comment_formatter import CommentFormatter
+
+class CustomFormatter(CommentFormatter):
+    """自定义格式化器"""
+    
+    def _format_single_comment(self, comment, indent_level=0):
+        """自定义单个评论的格式"""
+        indent = "  " * indent_level
+        author = comment.get("author", {}).get("blogNickName", "Unknown")
+        content = comment.get('content', '').strip()
+        likes = comment.get('likeCount', 0)
+        
+        # 自定义格式
+        result = f"{indent}【{author}】: {content} (👍 {likes})\n"
+        return result
+
+# 使用自定义格式化器
+custom_formatter = CustomFormatter()
+custom_text = custom_formatter.format_comments(structured_comments)
+
+
+【示例5: 批量处理多个帖子】
+from processors.comment_fetcher import CommentFetcher
+from processors.comment_formatter import CommentFormatter
+from processors.comment_saver import CommentSaver
+import time
+
+client = LofterClient(cookies=cookies)
+fetcher = CommentFetcher(client)
+formatter = CommentFormatter()
+saver = CommentSaver(client)
+
+# 帖子列表
+posts = [
+    {"post_id": "123", "blog_id": "blog1"},
+    {"post_id": "456", "blog_id": "blog2"},
+    {"post_id": "789", "blog_id": "blog3"},
+]
+
+for post in posts:
+    print(f"处理帖子: {post['post_id']}")
+    
+    # 获取评论
+    comments = fetcher.fetch_all_comments(post["post_id"], post["blog_id"])
+    
+    # 保存
+    saver.save_comments(post["post_id"], post["blog_id"], comments, mode='blog')
+    
+    # 格式化并打印
+    text = formatter.format_comments(comments)
+    print(f"评论数: {len(comments.get('all_list', []))}")
+    
+    # 请求间隔
+    time.sleep(1)
+
+
+================================================================
+三、错误处理示例
+================================================================
+
+【示例6: 处理网络错误】
+from processors.comment_fetcher import CommentFetcher
+
+client = LofterClient(cookies=cookies, debug=True)
+fetcher = CommentFetcher(client)
+
+try:
+    comments = fetcher.fetch_all_comments(post_id, blog_id)
+    
+    if not comments or not comments.get("all_list"):
+        print("未找到评论")
+    else:
+        print(f"成功获取 {len(comments['all_list'])} 条评论")
+        
+except Exception as e:
+    print(f"获取评论失败: {e}")
+    # 重试逻辑已内置在fetcher中，这里可以记录日志
+
+
+【示例7: 处理无效数据】
+from processors.comment_formatter import CommentFormatter
+
+formatter = CommentFormatter()
+
+# 处理空数据
+empty_comments = {"hot_list": [], "all_list": []}
+text = formatter.format_comments(empty_comments)
+print(text)  # 输出: "[热门评论]\n\n[全部评论]\n"
+
+# 处理None
+text = formatter.format_comments(None)
+print(text)  # 输出: ""
+
+
+================================================================
+四、配置使用示例
+================================================================
+
+【示例8: 切换评论格式】
+# 在 config.py 中修改
+GROUP_COMMENTS_BY_QUOTE = True   # 按引用分组
+# GROUP_COMMENTS_BY_QUOTE = False  # 按原始顺序
+
+from processors.comment_formatter import CommentFormatter
+
+formatter = CommentFormatter()
+# formatter 会自动使用配置的格式
+
+
+【示例9: 调整并发数】
+# 在 config.py 中修改
+COMMENT_MAX_WORKERS = 5  # 评论处理的最大线程数
+L2_COMMENT_REQUEST_DELAY = 1  # L2评论请求间隔（秒）
+
+# 配置会自动生效，无需额外代码
+
+
+================================================================
+五、调试示例
+================================================================
+
+【示例10: 启用详细日志】
+from network import LofterClient
+from processors.comment_fetcher import CommentFetcher
+
+# 启用调试模式
+client = LofterClient(cookies=cookies, debug=True)
+fetcher = CommentFetcher(client)
+
+# 所有网络请求和处理过程都会输出日志
+comments = fetcher.fetch_all_comments(post_id, blog_id)
+
+
+【示例11: 检查评论结构】
+import json
+from processors.comment_fetcher import CommentFetcher
+
+client = LofterClient(cookies=cookies)
+fetcher = CommentFetcher(client)
+
+comments = fetcher.fetch_all_comments(post_id, blog_id)
+
+# 打印结构化数据
+print(json.dumps(comments, ensure_ascii=False, indent=2))
+
+# 检查每个评论的字段
+for comment in comments["all_list"]:
+    print(f"评论ID: {comment['id']}")
+    print(f"作者: {comment['author']['blogNickName']}")
+    print(f"内容: {comment['content'][:50]}...")
+    print(f"回复数: {len(comment['replies'])}")
+    print("-" * 40)
+
+
+================================================================
+六、性能优化示例
+================================================================
+
+【示例12: 使用缓存（示例代码）】
+from processors.comment_fetcher import CommentFetcher
+import json
+import os
+
+class CachedCommentFetcher(CommentFetcher):
+    """带缓存的评论获取器"""
+    
+    def __init__(self, client, cache_dir="cache"):
+        super().__init__(client)
+        self.cache_dir = cache_dir
+        os.makedirs(cache_dir, exist_ok=True)
+    
+    def fetch_all_comments(self, post_id, blog_id, max_retries=3):
+        # 检查缓存
+        cache_file = os.path.join(self.cache_dir, f"{post_id}_{blog_id}.json")
+        
+        if os.path.exists(cache_file):
+            print(f"从缓存加载: {cache_file}")
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        
+        # 从API获取
+        comments = super().fetch_all_comments(post_id, blog_id, max_retries)
+        
+        # 保存到缓存
+        with open(cache_file, 'w', encoding='utf-8') as f:
+            json.dump(comments, f, ensure_ascii=False, indent=2)
+        
+        return comments
+
+# 使用带缓存的获取器
+client = LofterClient(cookies=cookies)
+cached_fetcher = CachedCommentFetcher(client)
+comments = cached_fetcher.fetch_all_comments(post_id, blog_id)
+
+
+【示例13: 限制获取数量】
+from processors.comment_fetcher import CommentFetcher
+
+class LimitedCommentFetcher(CommentFetcher):
+    """限制评论数量的获取器"""
+    
+    def _fetch_all_l1_comments(self, post_id, blog_id, max_comments=50):
+        """最多获取指定数量的评论"""
+        all_comments = []
+        offset = 0
+        page = 1
+        
+        while len(all_comments) < max_comments:
+            # ... 原有逻辑 ...
+            # 检查是否达到限制
+            if len(all_comments) >= max_comments:
+                break
+        
+        return all_comments[:max_comments]
+
+# 使用
+client = LofterClient(cookies=cookies)
+limited_fetcher = LimitedCommentFetcher(client)
+comments = limited_fetcher.fetch_all_comments(post_id, blog_id)
+
+
+================================================================
+七、集成示例
+================================================================
+
+【示例14: 在标签处理器中使用】
+from processors.tag_processor import process_tag
+from network import LofterClient
+
+# 标签处理器会自动调用重构后的评论处理模块
+client = LofterClient(cookies=cookies)
+process_tag(
+    client, 
+    tag="art", 
+    list_type="total",
+    timelimit="",
+    blog_type="1",
+    download_comments=True,  # 启用评论下载
+    download_images=True
+)
+
+
+【示例15: 在博客处理器中使用】
+from processors.blog_processor import process_post
+from network import LofterClient
+
+client = LofterClient(cookies=cookies)
+
+post_meta = {
+    "blogInfo": {"blogId": "testblog", "blogName": ""},
+    "postData": {"postView": {"id": "1e8d5a0b_1234567"}}
+}
+
+# 会自动获取并保存评论
+process_post(
+    client, 
+    post_meta, 
+    tag="art",
+    download_comments=True,
+    source_type="tag",
+    download_images=True
+)
+
+
+================================================================
+八、测试示例
+================================================================
+
+【示例16: 单元测试】
+import unittest
+from processors.comment_formatter import CommentFormatter
+
+class TestCommentFormatter(unittest.TestCase):
+    
+    def setUp(self):
+        self.formatter = CommentFormatter()
+    
+    def test_format_empty_comments(self):
+        """测试空评论格式化"""
+        empty = {"hot_list": [], "all_list": []}
+        result = self.formatter.format_comments(empty)
+        self.assertIn("[热门评论]", result)
+        self.assertIn("[全部评论]", result)
+    
+    def test_format_single_comment(self):
+        """测试单个评论格式化"""
+        comment = {
+            "id": "test",
+            "content": "测试评论",
+            "author": {"blogNickName": "测试用户"},
+            "publishTimeFormatted": "2024-01-01 12:00:00",
+            "likeCount": 10,
+            "ipLocation": "测试地点"
+        }
+        result = self.formatter._format_single_comment(comment)
+        self.assertIn("测试用户", result)
+        self.assertIn("测试评论", result)
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+================================================================
+九、常见问题解决
+================================================================
+
+问题1: 评论获取失败
+解决方案:
+- 检查 cookies 是否有效
+- 启用 debug 模式查看详细日志
+- 增加重试次数
+- 检查网络连接
+
+问题2: 格式化输出不正确
+解决方案:
+- 检查 GROUP_COMMENTS_BY_QUOTE 配置
+- 验证评论数据结构是否正确
+- 使用 json.dumps 查看原始数据
+
+问题3: 文件保存路径错误
+解决方案:
+- 检查 utils.path_manager 配置
+- 验证 mode 和 name 参数是否正确
+- 手动创建目录确保权限
+
+问题4: L2评论获取不完整
+解决方案:
+- 增加 L2_COMMENT_REQUEST_DELAY
+- 检查 API 返回结构
+- 启用调试日志查看详情
+
+================================================================
