@@ -2,6 +2,7 @@ from network import LofterClient
 import json
 from datetime import datetime
 from utils.path_manager import path_manager
+from config import GROUP_COMMENTS_BY_QUOTE
 
 def _format_comment_new(comment, indent_level=0, is_reply=False):
     """Formats a single comment dictionary into the new format."""
@@ -61,8 +62,35 @@ def _group_comments_by_quote(comments_data):
     return grouped, non_quoted
 
 
-def _format_comments_recursive(comments_data, indent_level=0):
-    """Recursively formats comments and their replies into the new format."""
+def _format_comments_recursive_v1(comments_data, indent_level=0):
+    """Recursively formats comments and their replies into the original format."""
+    result = ""
+    
+    for idx, comment in enumerate(comments_data, 1):
+        quote = comment.get('quote', '')
+        
+        # Add quote if exists
+        if quote:
+            result += f"----------({quote})---------- (L{indent_level}-{idx})\n"
+            result += _format_comment_new(comment, indent_level, is_reply=False)
+        else:
+            result += f"---------- (L{indent_level}-{idx})\n"
+            # Format the main comment
+            result += _format_comment_new(comment, indent_level, is_reply=False)
+        
+        # Add replies section if there are replies
+        replies = comment.get('replies', [])
+        if replies:
+            result += f"\n{'    ' * indent_level}---回复列表---\n"
+            result += _format_replies(replies, indent_level + 1)
+        
+        result += "\n"  # Add a newline after each comment block
+    
+    return result
+
+
+def _format_comments_recursive_v2(comments_data, indent_level=0):
+    """Recursively formats comments and their replies into the new format (grouped by quote)."""
     result = ""
     
     # Group comments by quote
@@ -99,6 +127,14 @@ def _format_comments_recursive(comments_data, indent_level=0):
         result += "\n"  # Add a newline after each comment block
     
     return result
+
+
+def _format_comments_recursive(comments_data, indent_level=0):
+    """Recursively formats comments and their replies, selecting method based on config."""
+    if GROUP_COMMENTS_BY_QUOTE:
+        return _format_comments_recursive_v2(comments_data, indent_level)
+    else:
+        return _format_comments_recursive_v1(comments_data, indent_level)
 
 def process_comments(client: LofterClient, post_id, blog_id, mode='comment', name=''):
     """Fetches and formats all comments for a post by calling the client method."""
