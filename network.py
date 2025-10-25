@@ -48,7 +48,7 @@ class LofterClient:
        
        self.session.headers.update({
            "User-Agent": DEFAULT_USER_AGENT,
-           "Accept-Encoding": "br,gzip",
+           "Accept-Encoding": "gzip",  # 只使用gzip，避免br解压问题
            "Connection": "Keep-Alive",
            "lofProduct": LOFTER_PRODUCT,
        })
