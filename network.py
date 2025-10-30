@@ -5,7 +5,6 @@ from datetime import datetime
 import re
 from urllib.parse import urlparse
 import requests
-from requests.cookies import create_cookie
 import concurrent.futures
 from config import REQUEST_TIMEOUT, TEXT_MAX_WORKERS, REQUEST_DELAY, BETWEEN_PAGES_DELAY, COMMENT_REQUEST_DELAY, L2_COMMENT_REQUEST_DELAY, COMMENT_MAX_WORKERS
 
@@ -21,6 +20,22 @@ L1_COMMENTS_URL = f"{API_BASE_URL}/comment/l1/page.json"
 L2_COMMENTS_URL = f"{API_BASE_URL}/comment/l2/page/abtest.json"
 COLLECTION_URL = f"{API_BASE_URL}/v1.1/postCollection.api"
 SUBSCRIPTION_URL = f"{API_BASE_URL}/newapi/subscribeCollection/list.json"
+
+# Define fixed headers to be used in all network methods
+FIXED_HEADERS = {
+    "user-agent": "LOFTER-Android 8.0.12 (LM-V409N; Android 15; null) WIFI",
+    "market": "LGE",
+    "deviceid": "3451efd56bgg6h47",
+    "androidid": "3451efd56bgg6h47",
+    "accept-encoding": "gzip",
+    "x-device": "qv+Dz73SObtbEFG7P0Gq12HkjzNb+iOK6KHWTPKHBTEZu26C6MJOMukkAG7dETo2",
+    "x-reqid": "0H62K0V7",
+    "content-type": "application/x-www-form-urlencoded",
+    "dadeviceid": "2ef9ea6c17b7c6881c71915a4fefd932edc01af0",
+    "lofproduct": "lofter-android-8.0.12",
+    "host": "api.lofter.com",
+    "portrait": "eyJpbWVpIjoiMzQ1MWVmZDU2YmdnNmg0NyIsImFuZHJvaWRJZCI6IjM0NTFlZmQ1NmJnZzZoNDciLCJvYWlkIjoiMzJiNGQyYzM0ODY1MDg0MiIsIm1hYyI6IjAyOjAwOjAwOjAwOjAwOjAwIiwicGhvbmUiOiIxNTkzNDg2NzI5MyJ9"
+}
 
 def _format_comment(comment, indent_level=0):
     """Formats a single comment dictionary into a readable string."""
@@ -38,112 +53,55 @@ class LofterClient:
     """
     A client for interacting with the Lofter API.
     """
-    def __init__(self, cookies=None, headers=None, debug=False):
+    def __init__(self, headers=None, debug=False):
        self.session = requests.Session()
        self.debug = debug
-       self.auth_key = None
-       self.ntes_sess = None
-       self.authorization = None
-       self.lofter_sess = None
        
-       self.session.headers.update({
-           "User-Agent": DEFAULT_USER_AGENT,
-           "Accept-Encoding": "br,gzip",
-           "Connection": "Keep-Alive",
-           "lofProduct": LOFTER_PRODUCT,
-       })
+       self.session.headers.update(FIXED_HEADERS)
        if headers:
            self.session.headers.update(headers)
 
-       if cookies:
-           self.auth_key = cookies.get("LOFTER-PHONE-LOGIN-AUTH")
-           self.ntes_sess = cookies.get("NTES_SESS")
-           self.authorization = cookies.get("Authorization")
-           self.lofter_sess = cookies.get("LOFTER_SESS")
-           # Set all cookies on the session for general requests, but for subscription
-           # requests we'll use specific authentication headers instead
-           for name, value in cookies.items():
-               if value:  # Only set non-empty cookie values
-                   cookie = create_cookie(domain=".lofter.com", name=name, value=value)
-                   self.session.cookies.set_cookie(cookie)
-
     def _log(self, message):
         if self.debug:
-            print(f"[DEBUG] {datetime.now().strftime('%H:%M:%S')} - {message}")
+            # 确保消息在打印时不会因为编码问题而失败
+            safe_message = str(message).encode('utf-8', 'replace').decode('utf-8')
+            print(f"[DEBUG] {datetime.now().strftime('%H:%M:%S')} - {safe_message}")
 
     def _make_request(self, method, url, params=None, data=None, headers=None, max_retries=3):
-       """Makes an HTTP request with retry logic."""
-       self._log(f"Request: {method} {url}")
-       if params: self._log(f"Params: {params}")
-       if data: self._log(f"Data: {data}")
+        """Makes an HTTP request with retry logic."""
+        self._log(f"Request: {method} {url}")
+        if params: self._log(f"Params: {params}")
+        if data: self._log(f"Data: {data}")
 
-       request_headers = self.session.headers.copy()
-       if headers:
-           request_headers.update(headers)
-       
-       # Critical fix: The collection API endpoint is sensitive to User-Agent.
-       # Removing all User-Agent related headers to force requests library's default,
-       # which mimics the behavior of the original working script.
-       for key in ('User-Agent', 'lofProduct'):
-           if key in request_headers:
-               del request_headers[key]
+        # Use fixed headers for all requests
+        request_headers = FIXED_HEADERS.copy()
+        if headers:
+            request_headers.update(headers)
 
-       # 根据选中的cookie类型决定如何处理cookies
-       from utils.cookie_manager import load_cookies
-       cookie_config = load_cookies()
-       selected_cookie_type = cookie_config.get("selected_cookie_type", None)
-       original_cookies = None
-       should_restore_cookies = False
+        try:
+            self._log(f"Request Headers: {request_headers}")
 
-       # 如果指定了特定类型的认证请求，则临时调整cookies
-       if selected_cookie_type and url != SUBSCRIPTION_URL:  # 订阅请求已由get_subs单独处理
-           original_cookies = dict(self.session.cookies)
-           should_restore_cookies = True
-           
-           # 清除session中的cookies，使用选中的认证类型
-           self.session.cookies.clear()
-           
-           # 只添加选中的cookie类型
-           if selected_cookie_type in original_cookies:
-               selected_cookie_value = original_cookies[selected_cookie_type]
-               from requests.cookies import create_cookie
-               cookie = create_cookie(domain=".lofter.com", name=selected_cookie_type, value=selected_cookie_value)
-               self.session.cookies.set_cookie(cookie)
+            for attempt in range(max_retries):
+                try:
+                    if method.upper() == "GET":
+                        response = self.session.get(url, params=params, headers=request_headers, timeout=REQUEST_TIMEOUT)
+                    else:
+                        response = self.session.post(url, data=data, headers=request_headers, timeout=REQUEST_TIMEOUT)
 
-       try:
-           # Log the cookies that will be sent with the request
-           cookies_to_send = dict(self.session.cookies)
-           self._log(f"Request Headers: {request_headers}")
-           self._log(f"Request Cookies: {cookies_to_send}")
-
-           for attempt in range(max_retries):
-               try:
-                   if method.upper() == "GET":
-                       response = self.session.get(url, params=params, headers=request_headers, timeout=REQUEST_TIMEOUT)
-                   else:
-                       response = self.session.post(url, data=data, headers=request_headers, timeout=REQUEST_TIMEOUT)
-                   
-                   self._log(f"Response Status: {response.status_code}")
-                   self._log(f"Response Body: {response.text[:500]}...")  # Limit body output to prevent too much text
-                   response.raise_for_status()
-                   json_response = response.json()
-                   self._log("Successfully decoded JSON response.")
-                   return json_response
-               except (requests.RequestException, json.JSONDecodeError) as e:
-                   self._log(f"Request to {url} failed (attempt {attempt + 1}/{max_retries}): {e}")
-                   if 'response' in locals() and hasattr(response, 'text'):
-                       self._log(f"Response text on error: {response.text[:500]}...")
-                   time.sleep(2 ** attempt)
-       finally:
-           # 恢复原始cookies
-           if should_restore_cookies and original_cookies is not None:
-               self.session.cookies.clear()
-               for name, value in original_cookies.items():
-                   from requests.cookies import create_cookie
-                   cookie = create_cookie(domain=".lofter.com", name=name, value=value)
-                   self.session.cookies.set_cookie(cookie)
-                   
-       return None
+                    self._log(f"Response Status: {response.status_code}")
+                    self._log(f"Response Body: {response.text[:500]}...")  # Limit body output to prevent too much text
+                    response.raise_for_status()
+                    json_response = response.json()
+                    self._log("Successfully decoded JSON response.")
+                    return json_response
+                except (requests.RequestException, json.JSONDecodeError) as e:
+                    self._log(f"Request to {url} failed (attempt {attempt + 1}/{max_retries}): {e}")
+                    if 'response' in locals() and hasattr(response, 'text'):
+                        self._log(f"Response text on error: {response.text[:500]}...")
+                    time.sleep(2 ** attempt)
+        except Exception as e:
+            self._log(f"Unhandled exception during request: {e}")
+        return None
 
     def fetch_posts_by_tag(self, tag, list_type="total", timelimit="", blog_type=""):
         """Fetches all post metadata for a given tag."""
@@ -156,14 +114,15 @@ class LofterClient:
 
         while True:
             data = {
-                "product": "lofter-android-8.1.28",
-                "postTypes": blog_type,
+                "postTypes": 0,
                 "offset": str(offset),
                 "postYm": timelimit,
                 "tag": tag,
-                "type": list_type
+                "type": list_type,
+                "limit": 10  # Fetch 10 posts at a time
             }
-            
+
+            # Use fixed headers for the request
             response = self._make_request("POST", TAG_POSTS_URL, data=data)
 
             if not response or "data" not in response or not response["data"].get("list"):
@@ -688,50 +647,20 @@ class LofterClient:
        """Downloads a single photo."""
        try:
            parsed_url = urlparse(url)
-           headers = {
-               "user-agent": "Dart/3.6 (dart:io)",
-               "accept-encoding": "gzip",
+           headers = FIXED_HEADERS.copy()
+           headers.update({
                "host": parsed_url.netloc
-           }
+           })
            # Log photo download request in debug mode
-           cookies_to_send = dict(self.session.cookies)
            self._log(f"Photo download request: GET {url}")
            self._log(f"Photo download headers: {headers}")
-           self._log(f"Photo download cookies: {cookies_to_send}")
            
-           # 根据选中的cookie类型决定如何处理cookies（对于图片下载可能不需要认证，但仍按规则处理）
-           from utils.cookie_manager import load_cookies
-           cookie_config = load_cookies()
-           selected_cookie_type = cookie_config.get("selected_cookie_type", None)
-           original_cookies = None
-           should_restore_cookies = False
-
-           # 如果指定了特定类型的认证请求，则临时调整cookies
-           if selected_cookie_type:
-               original_cookies = dict(self.session.cookies)
-               should_restore_cookies = True
-               
-               # 清除session中的cookies，使用选中的认证类型
-               self.session.cookies.clear()
-               
-               # 只添加选中的cookie类型
-               if selected_cookie_type in original_cookies:
-                   selected_cookie_value = original_cookies[selected_cookie_type]
-                   from requests.cookies import create_cookie
-                   cookie = create_cookie(domain=".lofter.com", name=selected_cookie_type, value=selected_cookie_value)
-                   self.session.cookies.set_cookie(cookie)
-
            try:
                response = self.session.get(url, headers=headers, stream=True, timeout=20)
-           finally:
-               # 恢复原始cookies
-               if should_restore_cookies and original_cookies is not None:
-                   self.session.cookies.clear()
-                   for name, value in original_cookies.items():
-                       from requests.cookies import create_cookie
-                       cookie = create_cookie(domain=".lofter.com", name=name, value=value)
-                       self.session.cookies.set_cookie(cookie)
-                       
+           except Exception as e:
+               self._log(f"Error during photo download request: {e}")
+               return None
+           
            self._log(f"Photo download response status: {response.status_code}")
            if response.status_code == 200:
                with open(filepath, 'wb') as f:
@@ -749,60 +678,27 @@ class LofterClient:
        """
        params = {'product': "lofter-android-7.6.12"}
        payload = f"method=getCollectionDetail&offset={offset}&limit={limit}&collectionid={collection_id}&order=1"
-       headers = {
-           'Accept-Encoding': "br,gzip",
-           'content-type': "application/x-www-form-urlencoded; charset=utf-8",
-       }
-       
-       # 添加认证头，使用选中的cookie类型
-       from utils.cookie_manager import load_cookies
-       cookie_config = load_cookies()
-       cookies = cookie_config.get("cookies", {})
-       selected_cookie_type = cookie_config.get("selected_cookie_type", None)
-       
-       # 根据选中的类型添加认证头
-       if selected_cookie_type:
-           if selected_cookie_type == 'LOFTER-PHONE-LOGIN-AUTH' and cookies.get(selected_cookie_type):
-               headers['lofter-phone-login-auth'] = cookies[selected_cookie_type]
-           elif selected_cookie_type == 'NTES_SESS' and cookies.get(selected_cookie_type):
-               headers['Cookie'] = f"NTES_SESS={cookies[selected_cookie_type]}"
-           elif selected_cookie_type in cookies and cookies[selected_cookie_type]:
-               # 如果是其他类型的认证cookie，也尝试添加
-               headers[selected_cookie_type] = cookies[selected_cookie_type]
-       else:
-           # 如果没有选中的类型，尝试使用默认的认证方式
-           if cookies.get('LOFTER-PHONE-LOGIN-AUTH'):
-               headers['lofter-phone-login-auth'] = cookies['LOFTER-PHONE-LOGIN-AUTH']
-           elif self.auth_key:
-               headers['lofter-phone-login-auth'] = self.auth_key
-           if cookies.get('NTES_SESS'):
-               cookie_parts = []
-               if headers.get('Cookie'):
-                   cookie_parts.append(headers['Cookie'])
-               cookie_parts.append(f"NTES_SESS={cookies['NTES_SESS']}")
-               headers['Cookie'] = "; ".join(cookie_parts)
-           elif self.ntes_sess:
-               cookie_parts = []
-               if headers.get('Cookie'):
-                   cookie_parts.append(headers['Cookie'])
-               cookie_parts.append(f"NTES_SESS={self.ntes_sess}")
-               headers['Cookie'] = "; ".join(cookie_parts)
+       headers = FIXED_HEADERS.copy()
        
        try:
-           # Log the cookies that will be sent with the request (from session)
-           cookies_to_send = dict(self.session.cookies)
+           # Log the request details
            self._log(f"Request (Bypassing Session): POST {COLLECTION_URL}")
            self._log(f"Params: {params}")
            self._log(f"Data: {payload}")
            self._log(f"Headers: {headers}")
-           self._log(f"Session Cookies: {cookies_to_send}")
            
            response = requests.post(COLLECTION_URL, params=params, data=payload, headers=headers, timeout=15)
            
            self._log(f"Response Status: {response.status_code}")
            self._log(f"Response Body: {response.text[:500]}...")  # Limit body output to prevent too much text
            response.raise_for_status()
-           response_json = response.json()
+           
+           # 强制使用 UTF-8 解码响应内容，以避免 Windows GBK 编码问题
+           # 使用 response.content 获取原始字节，并手动解码
+           response_text = response.content.decode('utf-8', errors='replace')
+           self._log(f"Decoded Response Text: {response_text[:500]}")
+           
+           response_json = json.loads(response_text)
            
            if response_json and "response" in response_json:
                return response_json['response']
@@ -876,100 +772,30 @@ class LofterClient:
            })
        return posts_format
 
-    def get_subs(self, auth_info, offset=0, limit_once=50):
-       """获取订阅列表，需要登录信息(LOFTER-PHONE-LOGIN-AUTH和NTES_SESS)"""
-       # 确保auth_info不为None
-       if auth_info is None:
-           from utils.cookie_manager import load_cookies
-           cookie_config = load_cookies()
-           cookies = cookie_config.get("cookies", {})
-           selected_cookie_type = cookie_config.get("selected_cookie_type", None)
-            
-           # 只使用选中的cookie类型，如果没有选中则使用默认的LOFTER-PHONE-LOGIN-AUTH和NTES_SESS
-           if selected_cookie_type:
-               # 获取选中的cookie值
-               selected_value = cookies.get(selected_cookie_type, '')
-               if selected_cookie_type == 'LOFTER-PHONE-LOGIN-AUTH' or selected_cookie_type == 'NTES_SESS':
-                   # 如果选中的类型是支持的认证类型，只设置该值，其他设为空
-                   if selected_cookie_type == 'LOFTER-PHONE-LOGIN-AUTH':
-                       auth_info = {
-                           'LOFTER-PHONE-LOGIN-AUTH': selected_value,
-                           'NTES_SESS': ''
-                       }
-                   else:  # selected_cookie_type == 'NTES_SESS'
-                       auth_info = {
-                           'LOFTER-PHONE-LOGIN-AUTH': '',
-                           'NTES_SESS': selected_value
-                       }
-               else:
-                   # 如果选中的类型不是认证类型，使用默认的认证值
-                   auth_info = {
-                       'LOFTER-PHONE-LOGIN-AUTH': cookies.get('LOFTER-PHONE-LOGIN-AUTH', '') or self.auth_key or '',
-                       'NTES_SESS': cookies.get('NTES_SESS', '') or self.ntes_sess or ''
-                   }
-           else:
-               # 如果没有选中的cookie类型，使用默认的LOFTER-PHONE-LOGIN-AUTH和NTES_SESS
-               auth_info = {
-                   'LOFTER-PHONE-LOGIN-AUTH': cookies.get('LOFTER-PHONE-LOGIN-AUTH', '') or self.auth_key or '',
-                   'NTES_SESS': cookies.get('NTES_SESS', '') or self.ntes_sess or ''
-               }
-
-       # 检查认证信息是否有效
-       authkey = auth_info.get('LOFTER-PHONE-LOGIN-AUTH', '').strip()
-       ntes_sess = auth_info.get('NTES_SESS', '').strip()
-       
-       if not authkey and not ntes_sess:
-           self._log("错误: 认证信息缺失，无法获取订阅列表")
-           return None
-
-       # 设置请求参数
+    def get_subs(self, offset=0, limit_once=50):
+       """Fetches subscription list."""
+       # Set request parameters
        params = {
            'offset': offset,
            'limit': limit_once
        }
 
-       headers = {
-           'User-Agent': DEFAULT_USER_AGENT,
-           'Accept-Encoding': "br,gzip",
-       }
+       headers = FIXED_HEADERS.copy()
        
-       # 只设置有效的认证头
-       if authkey:
-           headers['lofter-phone-login-auth'] = authkey
+       # Make the request
+       response = self._make_request("GET", SUBSCRIPTION_URL, params=params, headers=headers)
 
-       # 只在必要时添加Cookie头，只包含选中的类型
-       cookie_parts = []
-       if authkey:
-           cookie_parts.append(f"LOFTER-PHONE-LOGIN-AUTH={authkey}")
-       if ntes_sess:
-           cookie_parts.append(f"NTES_SESS={ntes_sess}")
-       if cookie_parts:
-           headers['Cookie'] = "; ".join(cookie_parts)
-
-       # 对于订阅请求，我们只使用header中的认证信息，不使用session中的其他cookies
-       # 创建一个临时的session来避免发送不必要的cookies
-       original_cookies = dict(self.session.cookies)
-       # 清除session中的cookies，因为认证信息已通过headers提供
-       self.session.cookies.clear()
-       try:
-           response = self._make_request("GET", SUBSCRIPTION_URL, params=params, headers=headers)
-       finally:
-           # 恢复原始cookies以供其他请求使用
-           self.session.cookies.clear()
-           for name, value in original_cookies.items():
-               self.session.cookies.set(name, value)
-
-       if response and response.get('code') == 0:  # 成功响应
-           self._log("成功获取订阅列表")
+       if response and response.get('code') == 0:  # Successful response
+           self._log("Successfully fetched subscription list")
            return response
        else:
-           # 如果响应包含错误信息，打印出来
+           # Log error if response contains error information
            if response:
                error_msg = response.get('msg', 'Unknown error')
                error_code = response.get('code', 'Unknown')
                self._log(f"Subscription API error: {error_msg} (code: {error_code})")
            else:
-               self._log("无法获取订阅列表: 请求失败或无响应")
+               self._log("Failed to fetch subscription list: Request failed or no response")
            return None
 
     def save_subscription_list(self, auth_info, save_path='./results', sleep_time=0.1, limit_once=50):
