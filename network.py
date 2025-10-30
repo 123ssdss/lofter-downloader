@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 import requests
 import concurrent.futures
 from config import REQUEST_TIMEOUT, TEXT_MAX_WORKERS, REQUEST_DELAY, BETWEEN_PAGES_DELAY, COMMENT_REQUEST_DELAY, L2_COMMENT_REQUEST_DELAY, COMMENT_MAX_WORKERS
+from config import USER_COOKIE  # Import user-provided cookie from config
 
 # 默认User-Agent和产品信息，固定在此文件中
 DEFAULT_USER_AGENT = "LOFTER-Android 7.6.12 (V2272A; Android 13; null) WIFI"
@@ -34,7 +35,8 @@ FIXED_HEADERS = {
     "dadeviceid": "2ef9ea6c17b7c6881c71915a4fefd932edc01af0",
     "lofproduct": "lofter-android-8.0.12",
     "host": "api.lofter.com",
-    "portrait": "eyJpbWVpIjoiMzQ1MWVmZDU2YmdnNmg0NyIsImFuZHJvaWRJZCI6IjM0NTFlZmQ1NmJnZzZoNDciLCJvYWlkIjoiMzJiNGQyYzM0ODY1MDg0MiIsIm1hYyI6IjAyOjAwOjAwOjAwOjAwOjAwIiwicGhvbmUiOiIxNTkzNDg2NzI5MyJ9"
+    "portrait": "eyJpbWVpIjoiMzQ1MWVmZDU2YmdnNmg0NyIsImFuZHJvaWRJZCI6IjM0NTFlZmQ1NmJnZzZoNDciLCJvYWlkIjoiMzJiNGQyYzM0ODY1MDg0MiIsIm1hYyI6IjAyOjAwOjAwOjAwOjAwOjAwIiwicGhvbmUiOiIxNTkzNDg2NzI5MyJ9",
+    "Cookie": f"{USER_COOKIE['name']}={USER_COOKIE['value']}"
 }
 
 def _format_comment(comment, indent_level=0):
@@ -56,7 +58,7 @@ class LofterClient:
     def __init__(self, headers=None, debug=False):
        self.session = requests.Session()
        self.debug = debug
-       
+
        self.session.headers.update(FIXED_HEADERS)
        if headers:
            self.session.headers.update(headers)
@@ -66,7 +68,6 @@ class LofterClient:
             # 确保消息在打印时不会因为编码问题而失败
             safe_message = str(message).encode('utf-8', 'replace').decode('utf-8')
             print(f"[DEBUG] {datetime.now().strftime('%H:%M:%S')} - {safe_message}")
-
     def _make_request(self, method, url, params=None, data=None, headers=None, max_retries=3):
         """Makes an HTTP request with retry logic."""
         self._log(f"Request: {method} {url}")
@@ -654,13 +655,13 @@ class LofterClient:
            # Log photo download request in debug mode
            self._log(f"Photo download request: GET {url}")
            self._log(f"Photo download headers: {headers}")
-           
+
            try:
                response = self.session.get(url, headers=headers, stream=True, timeout=20)
            except Exception as e:
                self._log(f"Error during photo download request: {e}")
                return None
-           
+
            self._log(f"Photo download response status: {response.status_code}")
            if response.status_code == 200:
                with open(filepath, 'wb') as f:
@@ -679,27 +680,27 @@ class LofterClient:
        params = {'product': "lofter-android-7.6.12"}
        payload = f"method=getCollectionDetail&offset={offset}&limit={limit}&collectionid={collection_id}&order=1"
        headers = FIXED_HEADERS.copy()
-       
+
        try:
            # Log the request details
            self._log(f"Request (Bypassing Session): POST {COLLECTION_URL}")
            self._log(f"Params: {params}")
            self._log(f"Data: {payload}")
            self._log(f"Headers: {headers}")
-           
+
            response = requests.post(COLLECTION_URL, params=params, data=payload, headers=headers, timeout=15)
-           
+
            self._log(f"Response Status: {response.status_code}")
            self._log(f"Response Body: {response.text[:500]}...")  # Limit body output to prevent too much text
            response.raise_for_status()
-           
+
            # 强制使用 UTF-8 解码响应内容，以避免 Windows GBK 编码问题
            # 使用 response.content 获取原始字节，并手动解码
            response_text = response.content.decode('utf-8', errors='replace')
            self._log(f"Decoded Response Text: {response_text[:500]}")
-           
+
            response_json = json.loads(response_text)
-           
+
            if response_json and "response" in response_json:
                return response_json['response']
        except (requests.RequestException, json.JSONDecodeError) as e:
@@ -781,7 +782,7 @@ class LofterClient:
        }
 
        headers = FIXED_HEADERS.copy()
-       
+
        # Make the request
        response = self._make_request("GET", SUBSCRIPTION_URL, params=params, headers=headers)
 
@@ -813,7 +814,7 @@ class LofterClient:
        from utils.path_manager import path_manager
        output_dir = path_manager.get_output_dir('subscription', '')
        json_dir = path_manager.get_json_dir('subscription', 'subscription')
-       
+
        import os
        os.makedirs(save_path, exist_ok=True)  # 确保 ./results 目录存在
 
@@ -850,7 +851,7 @@ class LofterClient:
                collection_name = c['name']
                f.write(f'合集名：{collection_name}\n')
                f.write(f'合集ID：{collection_id}\n')
-               
+
                # 只有当值存在且不为空时才写入
                author_name = c.get('blogInfo', {}).get('blogNickName', '')
                if author_name:
@@ -862,13 +863,13 @@ class LofterClient:
                print(f'合集名：{collection_name}，合集ID：{collection_id}')
 
        print(f'订阅信息保存至 {txt_file_path}')
-       
+
        # 保存为JSON文件到 ./results/subscription.json (用户期望的路径)
        json_file_path = os.path.join(save_path, 'subscription.json')
        with open(json_file_path, 'w', encoding='utf-8') as f:
            json.dump(collections, f, ensure_ascii=False, indent=2)
        print(f'订阅信息保存至 {json_file_path}')
-       
+
        # 保存到用户要求的路径：./json/subscription.json
        user_json_path = os.path.join('json', 'subscription.json')
        os.makedirs('json', exist_ok=True)

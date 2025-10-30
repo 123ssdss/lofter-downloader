@@ -52,3 +52,9 @@ DEFAULT_BLOG_TYPE = "1" # 博客类型
 # False: 使用v1方法（原始顺序）
 # 临时配置，后续会根据实际情况调整
 GROUP_COMMENTS_BY_QUOTE = True
+
+# User-provided cookie configuration
+USER_COOKIE = {
+    "name": "LOFTER-PHONE-LOGIN-AUTH",
+    "value": "cookie_value"
+}

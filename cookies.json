@@ -1,9 +1,0 @@
-{
-    "cookies": {
-        "Authorization": "your_auth_token_here",
-        "LOFTER-PHONE-LOGIN-AUTH": "your_token",
-        "LOFTER_SESS": "your_lofter_sess_key_here",
-        "NTES_SESS": "your_ntes_sess_key_here"
-    },
-    "selected_cookie_type": "LOFTER-PHONE-LOGIN-AUTH"
-}
