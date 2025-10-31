@@ -104,9 +104,21 @@ class LofterClient:
             self._log(f"Unhandled exception during request: {e}")
         return None
 
-    def fetch_posts_by_tag(self, tag, list_type="total", timelimit="", blog_type=""):
+    def fetch_posts_by_tag(self, tag, list_type=None, timelimit=None, blog_type=None):
         """Fetches all post metadata for a given tag."""
+        # Import default values from config
+        from config import DEFAULT_LIST_TYPE, DEFAULT_TIME_LIMIT, DEFAULT_BLOG_TYPE
+        
+        # Use default values from config if parameters are not provided
+        if list_type is None:
+            list_type = DEFAULT_LIST_TYPE
+        if timelimit is None:
+            timelimit = DEFAULT_TIME_LIMIT
+        if blog_type is None:
+            blog_type = DEFAULT_BLOG_TYPE
+            
         all_posts = []
+        all_responses = []  # 保存所有响应
         permalinks = set()
         offset = 0
         
@@ -115,7 +127,7 @@ class LofterClient:
 
         while True:
             data = {
-                "postTypes": 0,
+                "postTypes": blog_type,
                 "offset": str(offset),
                 "postYm": timelimit,
                 "tag": tag,
@@ -125,6 +137,10 @@ class LofterClient:
 
             # Use fixed headers for the request
             response = self._make_request("POST", TAG_POSTS_URL, data=data)
+            
+            # 保存完整的响应
+            if response:
+                all_responses.append(response)
 
             if not response or "data" not in response or not response["data"].get("list"):
                 self._log(f"No more posts found for tag '{tag}' or API error.")
@@ -152,7 +168,31 @@ class LofterClient:
         
         sys.stdout.write("\033[K")
         print(f"Tag '{tag}': Fetching complete. Found {len(all_posts)} unique posts.")
+        
+        # 保存完整的响应到JSON文件
+        self._save_tag_responses(tag, all_responses)
+        
         return all_posts
+    
+    def _save_tag_responses(self, tag, responses):
+        """保存标签的完整响应到JSON文件"""
+        try:
+            import os
+            import json
+            from utils.path_manager import path_manager
+            
+            # 获取保存路径 - 直接在tag目录下，不使用comments子目录
+            json_dir = os.path.join(path_manager.base_json_dir, 'tag', tag)
+            os.makedirs(json_dir, exist_ok=True)
+            filepath = os.path.join(json_dir, 'tagresponse.json')
+            
+            # 保存响应
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(responses, f, ensure_ascii=False, indent=2)
+                
+            self._log(f"Saved tag responses to {filepath}")
+        except Exception as e:
+            self._log(f"Error saving tag responses: {str(e)}")
         
     def fetch_post_detail(self, post_meta):
         blog_info = post_meta["blogInfo"]

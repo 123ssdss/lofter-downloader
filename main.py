@@ -1,13 +1,14 @@
-import argparse
-import time
-from network import LofterClient
-from utils import format_time
-from utils.cookie_manager import load_cookies
-from processors.tag_processor import TagProcessor
-from processors.blog_processor import BlogProcessor
-from processors.collection_processor import CollectionProcessor
-from processors.subscription_processor import SubscriptionProcessor
-from processors.comment_mode_processor import CommentModeProcessor
+import argparse
+import time
+from network import LofterClient
+from utils import format_time
+from utils.cookie_manager import load_cookies
+from processors.tag_processor import TagProcessor
+from processors.blog_processor import BlogProcessor
+from processors.collection_processor import CollectionProcessor
+from processors.subscription_processor import SubscriptionProcessor
+from processors.comment_mode_processor import CommentModeProcessor
+from config import DEFAULT_LIST_TYPE, DEFAULT_TIME_LIMIT, DEFAULT_BLOG_TYPE
 
 
 def main():
@@ -17,9 +18,9 @@ def main():
     parser.add_argument("value", nargs='*', default=None, 
                        help="The value for the selected mode (e.g., tag name(s), post ID, collection ID). Not used for subscription.")
     parser.add_argument("--blog_id", help="The blog ID (required for 'blog' and 'comment' modes).")
-    parser.add_argument("--list_type", default="total", help="List type for tag mode.")
-    parser.add_argument("--timelimit", default="", help="Time limit for tag mode.")
-    parser.add_argument("--blog_type", default="1", help="Blog type for tag mode.")
+    parser.add_argument("--list_type", default=DEFAULT_LIST_TYPE, help="List type for tag mode.")
+    parser.add_argument("--timelimit", default=DEFAULT_TIME_LIMIT, help="Time limit for tag mode.")
+    parser.add_argument("--blog_type", default=DEFAULT_BLOG_TYPE, help="Blog type for tag mode.")
     parser.add_argument("--no-comments", action="store_true", help="Disable comment downloading.")
     parser.add_argument("--no-photos", action="store_true", help="Disable photo downloading.")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging.")

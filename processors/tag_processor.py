@@ -5,7 +5,7 @@
 from typing import Dict, Any, List
 from processors.base_processor import WorkflowCoordinator
 from processors.blog_content_processor import BlogContentProcessor
-from config import TAG_POST_REQUEST_DELAY
+from config import TAG_POST_REQUEST_DELAY, DEFAULT_LIST_TYPE, DEFAULT_TIME_LIMIT, DEFAULT_BLOG_TYPE
 
 
 class TagProcessor(WorkflowCoordinator):
@@ -15,8 +15,8 @@ class TagProcessor(WorkflowCoordinator):
         super().__init__(client, debug)
         self.blog_processor = BlogContentProcessor(client, debug)
     
-    def fetch_posts_by_tag(self, tag: str, list_type: str = "total", 
-                          timelimit: str = "", blog_type: str = "1") -> List[Dict[str, Any]]:
+    def fetch_posts_by_tag(self, tag: str, list_type: str = DEFAULT_LIST_TYPE, 
+                          timelimit: str = DEFAULT_TIME_LIMIT, blog_type: str = DEFAULT_BLOG_TYPE) -> List[Dict[str, Any]]:
         """根据标签获取帖子列表"""
         try:
             posts = self.client.fetch_posts_by_tag(tag, list_type, timelimit, blog_type)
@@ -48,8 +48,8 @@ class TagProcessor(WorkflowCoordinator):
             self.handle_error(e, f"处理标签帖子 {post_id}")
             return {}
     
-    def process_single_tag(self, tag: str, list_type: str = "total",
-                          timelimit: str = "", blog_type: str = "1",
+    def process_single_tag(self, tag: str, list_type: str = DEFAULT_LIST_TYPE,
+                          timelimit: str = DEFAULT_TIME_LIMIT, blog_type: str = DEFAULT_BLOG_TYPE,
                           download_comments: bool = False,
                           download_images: bool = True) -> Dict[str, Any]:
         """处理单个标签"""
@@ -125,8 +125,8 @@ class TagProcessor(WorkflowCoordinator):
             self.handle_error(e, f"处理标签 {tag}")
             return {"success": False, "error": str(e)}
     
-    def process(self, tags: List[str], list_type: str = "total",
-               timelimit: str = "", blog_type: str = "1",
+    def process(self, tags: List[str], list_type: str = DEFAULT_LIST_TYPE,
+               timelimit: str = DEFAULT_TIME_LIMIT, blog_type: str = DEFAULT_BLOG_TYPE,
                download_comments: bool = False,
                download_images: bool = True) -> Dict[str, Any]:
         """处理多个标签的主要接口"""

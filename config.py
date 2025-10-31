@@ -45,7 +45,7 @@ TEXT_MAX_WORKERS = 10
 # tag帖子配置
 DEFAULT_LIST_TYPE = "total" 
 DEFAULT_TIME_LIMIT = "" #时间限制，空字符串表示不限制
-DEFAULT_BLOG_TYPE = "1" # 博客类型
+DEFAULT_BLOG_TYPE = "0" # 博客类型
 
 # 评论处理方法配置
 # True: 使用v2方法（按相同引用内容分组）
