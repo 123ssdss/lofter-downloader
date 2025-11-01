@@ -30,19 +30,20 @@ pip install requests
 
 ### 3. 配置认证信息
 
-将您的 Lofter 认证信息添加到 `cookies.json` 文件中：
+将您的 Lofter 认证信息添加到 `config.py` 文件中：
 
-```json
-{
-  "cookies": {
-    "Authorization": "your_auth_token_here",
-    "LOFTER-PHONE-LOGIN-AUTH": "your_phone_login_auth_here",
-    "LOFTER_SESS": "your_lofter_sess_key_here",
-    "NTES_SESS": "your_ntes_sess_key_here"
-  },
-  "selected_cookie_type": "LOFTER-PHONE-LOGIN-AUTH"
+```python
+USER_COOKIE = {
+    "name": "COOKIE name",
+    "value": "your_phone_login_auth_here"
 }
 ```
+### cookie 说明
+        "1": "lofter id 登录 (Authorization)",
+        "2": "手机号登录 (LOFTER-PHONE-LOGIN-AUTH)",
+        "3": "QQ登录/微信登录/微博登录 (LOFTER_SESS)",
+        "4": "邮箱登录 (NTES_SESS)",
+括号内容为cookie名称 对应登录方式修改name和value即可
 
 ### 4. 使用方法
 
@@ -122,7 +123,4 @@ python main.py subscription
   - TEXT_MAX_WORKERS：文本处理最大线程数
   - COMMENT_MAX_WORKERS：评论处理最大线程数
 - 默认参数设置
-
-### cookies.json
-认证信息配置文件，包含 Lofter 平台的各种认证 Cookie。
 

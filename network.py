@@ -9,9 +9,7 @@ import concurrent.futures
 from config import REQUEST_TIMEOUT, TEXT_MAX_WORKERS, REQUEST_DELAY, BETWEEN_PAGES_DELAY, COMMENT_REQUEST_DELAY, L2_COMMENT_REQUEST_DELAY, COMMENT_MAX_WORKERS
 from config import USER_COOKIE  # Import user-provided cookie from config
 
-# 默认User-Agent和产品信息，固定在此文件中
-DEFAULT_USER_AGENT = "LOFTER-Android 7.6.12 (V2272A; Android 13; null) WIFI"
-LOFTER_PRODUCT = "lofter-android-7.6.12"
+
 
 # --- Constants ---
 API_BASE_URL = "https://api.lofter.com"
