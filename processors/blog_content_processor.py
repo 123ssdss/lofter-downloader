@@ -4,6 +4,7 @@
 """
 import json
 import os
+from urllib.parse import urlparse
 from typing import Dict, Any, List, Optional
 from processors.base_processor import ContentProcessor, OutputFormatter
 from utils.path_manager import path_manager
@@ -109,19 +110,36 @@ class BlogContentProcessor(ContentProcessor):
         """提取帖子内容"""
         try:
             post = post_detail_json["response"]["posts"][0]["post"]
-            
-            if post.get("type") == 1:  # 文本帖子
-                # 使用resolve_article函数处理包含付费彩蛋的文章内容
-                resolved_content = self.gift_handler.resolve_article(post_detail_json)
-                content = self.output_formatter.extract_links_and_titles(
-                    resolved_content or post.get("content", "")
-                )
-            elif post.get("type") == 2:  # 图片帖子
-                content = "[Photo Post]"
-            else:
-                content = "[Unknown Post Type]"
-            
+            # For all post types, prefer resolved (including gift) content if available,
+            # and always run through extract_links_and_titles for consistent processing.
+            resolved_content = self.gift_handler.resolve_article(post_detail_json)
+            content = self.output_formatter.extract_links_and_titles(
+                resolved_content or post.get("content", "")
+            )
+
+            # If this is a photo post, append a simple marker to the end of the
+            # processed content so it's clear in the output.
+            try:
+                if post.get("type") == 2:
+                    # Keep a blank line before the marker for readability
+                    content = (content or "") + "\n\n[Photo Post]"
+            except Exception:
+                # If anything goes wrong checking type, just return the content
+                pass
+
+            # Also, if there are any image links (regardless of post type),
+            # append them to the content so they appear in the saved text.
+            try:
+                photo_links = self.extract_photo_links(post_detail_json)
+                if photo_links:
+                    # Ensure content is a string
+                    content = (content or "") + "\n\n[Images]\n" + "\n".join(photo_links)
+            except Exception:
+                # If extraction fails, ignore and return content as-is
+                pass
+
             return content
+            
         except Exception as e:
             self.handle_error(e, "提取帖子内容")
             return ""
@@ -164,9 +182,8 @@ class BlogContentProcessor(ContentProcessor):
             else:
                 text_parts.append("(暂无评论)")
             
-            # 如果有图片，添加图片信息
-            if photo_paths:
-                text_parts.insert(-2, "\n[下载的图片]\n" + "\n".join(photo_paths))
+            # 如果有图片，图片信息已经会出现在正文或链接替换处，移除单独的下载列表以避免重复
+            # (以前会插入一个 [下载的图片] 列表，这里已删除)
             
             return "\n".join(text_parts)
         except Exception as e:
@@ -197,10 +214,10 @@ class BlogContentProcessor(ContentProcessor):
             self.save_json_data(post_detail_json, json_file)
             result["json_file"] = json_file
             
-            # 处理图片
+            # 处理图片 — 无论帖子类型，只要存在图片链接且 download_images=True 就下载
             photo_paths = []
             post = post_detail_json["response"]["posts"][0]["post"]
-            if post.get("type") == 2 and download_images:  # 图片帖子
+            if download_images:
                 photo_links = self.extract_photo_links(post_detail_json)
                 if photo_links:
                     from processors.base_processor import MediaProcessor
@@ -232,7 +249,47 @@ class BlogContentProcessor(ContentProcessor):
             # 保存文本文件
             text_dir = path_manager.get_output_dir(mode, name)
             text_file = os.path.join(text_dir, f"{base_filename}.txt")
+
+            # Format the text content (this will include the original image URLs appended earlier)
             text_content = self.format_post_as_text(post_detail_json, photo_paths, comments_text)
+
+            # Replace original image URLs in the text with local relative hyperlinks
+            try:
+                if photo_paths:
+                    # Build a map from expected filename to actual downloaded path
+                    photo_dir = path_manager.get_photo_dir(mode, name)
+                    url_to_local = {}
+                    # Re-extract original photo URLs to map them deterministically
+                    original_photo_urls = self.extract_photo_links(post_detail_json)
+                    for i, url in enumerate(original_photo_urls):
+                        # Expected filename constructed by MediaProcessor.download_images
+                        extension = os.path.splitext(urlparse(url).path)[1].lower() or ".jpg"
+                        expected_filename = f"{base_filename} ({i+1}){extension}"
+                        expected_filepath = os.path.join(photo_dir, expected_filename)
+                        if os.path.exists(expected_filepath):
+                            rel_path = os.path.relpath(expected_filepath, start=os.path.dirname(text_file))
+                            # Use forward slashes for hyperlinks
+                            rel_path = rel_path.replace('\\', '/')
+                            url_to_local[url] = f"[{expected_filename}]({rel_path})"
+                        else:
+                            # Fallback: try to find a matching basename in downloaded paths
+                            matched = None
+                            for p in photo_paths:
+                                if os.path.basename(p).startswith(base_filename):
+                                    matched = p
+                                    break
+                            if matched:
+                                rel_path = os.path.relpath(matched, start=os.path.dirname(text_file)).replace('\\', '/')
+                                url_to_local[url] = f"[{os.path.basename(matched)}]({rel_path})"
+
+                    # Perform replacements in the text content.
+                    # Keep the original URL in the text and append a local hyperlink next to it.
+                    for orig_url, local_link in url_to_local.items():
+                        text_content = text_content.replace(orig_url, f"{orig_url} {local_link}")
+            except Exception:
+                # If anything fails here, continue and save the original content
+                pass
+
             self.save_text_data(text_content, text_file)
             result["text_file"] = text_file
             
