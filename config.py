@@ -56,5 +56,5 @@ GROUP_COMMENTS_BY_QUOTE = True
 # User-provided cookie configuration
 USER_COOKIE = {
     "name": "LOFTER-PHONE-LOGIN-AUTH",
-    "value": "cookie_value"
+    "value": "none"
 }

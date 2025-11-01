@@ -127,6 +127,36 @@ class OutputFormatter:
         return text.strip()
     
     @staticmethod
+    def extract_links_and_titles(html_content: str) -> str:
+        """提取HTML中的链接和标题"""
+        if not html_content:
+            return ""
+        
+        import html
+        import re
+        
+        # 先解码HTML实体
+        text = html.unescape(html_content)
+        
+        # 定义替换函数，将链接替换为标题和链接的组合
+        def replace_link(match):
+            href, title = match.groups()
+            # 清理标题中的HTML标签
+            clean_title = re.sub(r'<[^>]+>', '', title).strip()
+            # 返回格式化的链接信息
+            return f"{clean_title} (链接: {href})"
+        
+        # 使用替换函数处理所有<a>标签
+        processed_text = re.sub(r'<a\s+href\s*=\s*["\']([^"\']*)["\'][^>]*>(.*?)</a>', replace_link, text, flags=re.IGNORECASE | re.DOTALL)
+        
+        # 处理其他HTML标签
+        processed_text = re.sub(r'<br\s*/?>', '\n', processed_text, flags=re.IGNORECASE)
+        processed_text = re.sub(r'</p>', '\n\n', processed_text, flags=re.IGNORECASE)
+        processed_text = re.sub(r'<[^>]+>', '', processed_text)
+        
+        return processed_text.strip()
+    
+    @staticmethod
     def format_post_metadata(post_data: Dict[str, Any]) -> Dict[str, str]:
         """格式化帖子元数据"""
         from datetime import datetime

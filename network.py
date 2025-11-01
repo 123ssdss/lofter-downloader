@@ -534,18 +534,51 @@ class LofterClient:
                 all_comments = structured_result.get("all_list", [])
                 
                 for comment in all_comments:
-                    comment_id = comment.get("id", "unknown")
-                    content = comment.get("content", "")
-                    f.write(f"[l1 {comment_id}]\n")
-                    f.write(f"{content}\n")
+                    # 写入主评论信息
+                    f.write(f"发布人：{comment.get('author', {}).get('blogNickName', 'Unknown')}\n")
+                    f.write(f"时间：{comment.get('publishTimeFormatted', '')}\n")
+                    f.write(f"内容：{comment.get('content', '').strip()}\n")
+                    f.write(f"点赞数：{comment.get('likeCount', 0)}\n")
                     
-                    # 处理L2回复
+                    # 添加IP位置信息（如果有）
+                    ip_location = comment.get('ipLocation', '')
+                    if ip_location:
+                        f.write(f"IP属地：{ip_location}\n")
+                    
+                    # 添加引用内容（如果有）
+                    quote = comment.get('quote', '')
+                    if quote:
+                        f.write(f"引用：{quote}\n")
+                    
+                    # 添加表情信息（如果有）
+                    emotes = comment.get('emotes', [])
+                    if emotes:
+                        f.write("表情：\n")
+                        for emote in emotes:
+                            f.write(f"  - {emote['name']} ({emote['url']})\n")
+                    
+                    # 处理回复
                     replies = comment.get("replies", [])
-                    for reply in replies:
-                        reply_id = reply.get("id", "unknown")
-                        reply_content = reply.get("content", "")
-                        f.write(f"   [l2 {reply_id}]\n")
-                        f.write(f"    {reply_content}\n")
+                    if replies:
+                        f.write("\n---回复列表---\n")
+                        for idx, reply in enumerate(replies, 1):
+                            f.write(f"回复{idx}：\n")
+                            f.write(f"  作者：{reply.get('author', {}).get('blogNickName', 'Unknown')}\n")
+                            f.write(f"  时间：{reply.get('publishTimeFormatted', '')}\n")
+                            f.write(f"  内容：{reply.get('content', '').strip()}\n")
+                            f.write(f"  点赞数：{reply.get('likeCount', 0)}\n")
+                            
+                            # 添加IP位置信息（如果有）
+                            reply_ip_location = reply.get('ipLocation', '')
+                            if reply_ip_location:
+                                f.write(f"  IP属地：{reply_ip_location}\n")
+                            
+                            # 添加表情信息（如果有）
+                            reply_emotes = reply.get('emotes', [])
+                            if reply_emotes:
+                                f.write("  表情：\n")
+                                for emote in reply_emotes:
+                                    f.write(f"    - {emote['name']} ({emote['url']})\n")
                     
                     f.write("\n")
                 
@@ -627,18 +660,46 @@ class LofterClient:
 
     def _format_comment_with_replies_text(self, normalized_comment):
         """Format a normalized comment with its replies as text."""
-        result = f"\n--- Comment by {normalized_comment['author']['blogNickName']} ---\n"
-        result += f"Content: {normalized_comment['content']}\n"
-        result += f"Time: {normalized_comment['publishTimeFormatted']}\n"
-        result += f"Likes: {normalized_comment['likeCount']}\n"
+        result = f"\n发布人：{normalized_comment['author']['blogNickName']}\n"
+        result += f"时间：{normalized_comment['publishTimeFormatted']}\n"
+        result += f"内容：{normalized_comment['content']}\n"
+        result += f"点赞数：{normalized_comment['likeCount']}\n"
         
+        # 添加IP位置信息（如果有）
+        if normalized_comment.get('ipLocation'):
+            result += f"IP属地：{normalized_comment['ipLocation']}\n"
+        
+        # 添加引用内容（如果有）
+        if normalized_comment.get('quote'):
+            result += f"引用：{normalized_comment['quote']}\n"
+        
+        # 添加表情信息（如果有）
+        if normalized_comment.get('emotes'):
+            result += "表情：\n"
+            for emote in normalized_comment['emotes']:
+                result += f"  - {emote['name']} ({emote['url']})\n"
+        
+        # 添加回复部分（如果有）
         if normalized_comment['replies']:
-            result += "  --- Replies ---\n"
-            for reply in normalized_comment['replies']:
-                result += f"    Reply by {reply['author']['blogNickName']}\n"
-                result += f"    Content: {reply['content']}\n"
-                result += f"    Time: {reply['publishTimeFormatted']}\n"
-                result += f"    Likes: {reply['likeCount']}\n"
+            result += "\n---回复列表---\n"
+            for idx, reply in enumerate(normalized_comment['replies'], 1):
+                result += f"回复{idx}：\n"
+                result += f"  作者：{reply['author']['blogNickName']}\n"
+                result += f"  时间：{reply['publishTimeFormatted']}\n"
+                result += f"  内容：{reply['content']}\n"
+                result += f"  点赞数：{reply['likeCount']}\n"
+                
+                # 添加IP位置信息（如果有）
+                if reply.get('ipLocation'):
+                    result += f"  IP属地：{reply['ipLocation']}\n"
+                
+                # 添加表情信息（如果有）
+                if reply.get('emotes'):
+                    result += "  表情：\n"
+                    for emote in reply['emotes']:
+                        result += f"    - {emote['name']} ({emote['url']})\n"
+                
+                result += "\n"
         
         result += "\n"
         return result
@@ -903,12 +964,6 @@ class LofterClient:
                print(f'合集名：{collection_name}，合集ID：{collection_id}')
 
        print(f'订阅信息保存至 {txt_file_path}')
-
-       # 保存为JSON文件到 ./results/subscription.json (用户期望的路径)
-       json_file_path = os.path.join(save_path, 'subscription.json')
-       with open(json_file_path, 'w', encoding='utf-8') as f:
-           json.dump(collections, f, ensure_ascii=False, indent=2)
-       print(f'订阅信息保存至 {json_file_path}')
 
        # 保存到用户要求的路径：./json/subscription.json
        user_json_path = os.path.join('json', 'subscription.json')

@@ -80,16 +80,24 @@ def main():
         
         elif args.mode == "blog":
             # 处理博客模式
-            if not args.blog_id:
-                print("Error: --blog_id is required for blog mode.")
-                return
-            
             post_id = args.value[0] if args.value else None
             if not post_id:
-                print("Error: Post ID is required for blog mode.")
+                print("Error: Post ID or URL is required for blog mode.")
                 return
             
-            print(f"Mode: Blog | Post ID: {post_id} | Blog ID: {args.blog_id}")
+            # 去除可能的引号
+            post_id = post_id.strip('"\'')
+            
+            # 如果post_id是URL，则不需要--blog_id参数
+            is_url = post_id.startswith("http://") or post_id.startswith("https://")
+            if not is_url and not args.blog_id:
+                print("Error: --blog_id is required for blog mode when not using a URL.")
+                return
+            
+            if is_url:
+                print(f"Mode: Blog | URL: {post_id}")
+            else:
+                print(f"Mode: Blog | Post ID: {post_id} | Blog ID: {args.blog_id}")
             
             blog_processor = BlogProcessor(client, args.debug)
             result = blog_processor.process(

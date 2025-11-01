@@ -113,7 +113,7 @@ class BlogContentProcessor(ContentProcessor):
             if post.get("type") == 1:  # 文本帖子
                 # 使用resolve_article函数处理包含付费彩蛋的文章内容
                 resolved_content = self.gift_handler.resolve_article(post_detail_json)
-                content = self.output_formatter.convert_html_to_text(
+                content = self.output_formatter.extract_links_and_titles(
                     resolved_content or post.get("content", "")
                 )
             elif post.get("type") == 2:  # 图片帖子

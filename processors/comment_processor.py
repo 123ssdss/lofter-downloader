@@ -23,22 +23,34 @@ class CommentProcessor(ContentProcessor):
         publish_time = comment.get('publishTimeFormatted', '')
         like_count = comment.get('likeCount', 0)
         ip_location = comment.get('ipLocation', '')
+        quote = comment.get('quote', '')
+        emotes = comment.get('emotes', [])
         
         result = f"{indent}----------\n"
         
         # 使用不同的标签回复和主评论
         if is_reply:
-            result += f"{indent}    回复人：{author}\n"
+            result += f"{indent}回复人：{author}\n"
         else:
             result += f"{indent}发布人：{author}\n"
         
-        result += f"{indent}内容：{content}\n"
         result += f"{indent}时间：{publish_time}\n"
+        result += f"{indent}内容：{content}\n"
         result += f"{indent}点赞数：{like_count}\n"
         
         # 添加IP位置信息（如果有）
         if ip_location:
-            result += f"{indent}IP位置：{ip_location}\n"
+            result += f"{indent}IP属地：{ip_location}\n"
+        
+        # 添加引用内容（如果有）
+        if quote:
+            result += f"{indent}引用：{quote}\n"
+        
+        # 添加表情信息（如果有）
+        if emotes:
+            result += f"{indent}表情：\n"
+            for emote in emotes:
+                result += f"{indent}  - {emote['name']} ({emote['url']})\n"
         
         return result
     
@@ -47,11 +59,24 @@ class CommentProcessor(ContentProcessor):
         result = ""
         for idx, reply in enumerate(replies, 1):
             # 格式化回复，使用正确的缩进 - 回复是L2、L3等，取决于上下文
-            result += f"{'    ' * indent_level}---------- (L{indent_level + 1}-{idx})\n"
-            result += f"{'    ' * (indent_level + 1)}回复人：{reply.get('author', {}).get('blogNickName', 'Unknown')}\n"
-            result += f"{'    ' * (indent_level + 1)}内容：{reply.get('content', '').strip()}\n"
+            result += f"{'    ' * indent_level}回复{idx}：\n"
+            result += f"{'    ' * (indent_level + 1)}作者：{reply.get('author', {}).get('blogNickName', 'Unknown')}\n"
             result += f"{'    ' * (indent_level + 1)}时间：{reply.get('publishTimeFormatted', '')}\n"
+            result += f"{'    ' * (indent_level + 1)}内容：{reply.get('content', '').strip()}\n"
             result += f"{'    ' * (indent_level + 1)}点赞数：{reply.get('likeCount', 0)}\n"
+            
+            # 添加IP位置信息（如果有）
+            ip_location = reply.get('ipLocation', '')
+            if ip_location:
+                result += f"{'    ' * (indent_level + 1)}IP属地：{ip_location}\n"
+            
+            # 添加表情信息（如果有）
+            emotes = reply.get('emotes', [])
+            if emotes:
+                result += f"{'    ' * (indent_level + 1)}表情：\n"
+                for emote in emotes:
+                    result += f"{'    ' * (indent_level + 2)}- {emote['name']} ({emote['url']})\n"
+            
             result += "\n"  # 每个回复后添加换行
         return result
     
