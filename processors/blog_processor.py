@@ -5,8 +5,7 @@
 from typing import Dict, Any
 from processors.base_processor import WorkflowCoordinator
 from processors.blog_content_processor import BlogContentProcessor
-from utils.url_parser import parse_lofter_url, extract_blog_id_from_name, extract_ids_from_html
-import requests
+from utils.url_parser import extract_ids_from_html
 
 
 class BlogProcessor(WorkflowCoordinator):
@@ -62,48 +61,63 @@ class BlogProcessor(WorkflowCoordinator):
             return {}
     
     def extract_ids_from_url(self, url: str) -> Dict[str, Any]:
-        """从URL或HTML内容中提取Blog ID和Post ID"""
+        """从HTML内容或URL中提取Blog ID和Post ID"""
         try:
-            # 首先尝试解析URL
-            url_info = parse_lofter_url(url)
-            
-            # 总是尝试从HTML中获取更多/更准确的信息，特别是当URL解析缺少blog_id时
+            # 总是尝试从HTML中获取信息
             try:
-                response = requests.get(url, timeout=30)
-                if response.status_code == 200:
-                    html_content = response.text
-                    html_info = extract_ids_from_html(html_content)
+                # 使用LofterClient的fetch_html_content方法
+                html_content = self.client.fetch_html_content(url, timeout=30)
+                if html_content:
+                    self.logger.info(f"成功获取HTML内容，长度: {len(html_content)}")
+                    html_info = extract_ids_from_html(html_content, url)
                     if html_info:
-                        if html_info.get('blog_id') and html_info.get('post_id'):
-                            # 如果从HTML中成功提取到完整ID，使用HTML中的信息
-                            return {
-                                'post_id': html_info['post_id'],
-                                'blog_id': html_info['blog_id'],
-                                'source': html_info.get('source', 'html_direct')
-                            }
-                        elif html_info.get('blog_id') and url_info and url_info.get('post_id'):
-                            # 如果HTML中有blog_id但URL中有post_id，合并信息
-                            result = url_info.copy() if url_info else {}
-                            result['blog_id'] = html_info['blog_id']
-                            result['source'] = html_info.get('source', 'html_merged')
-                            return result
-                        elif html_info.get('post_id'):
-                            # 如果HTML中有post_id，使用HTML中的post_id
-                            result = url_info.copy() if url_info else {}
-                            result['post_id'] = html_info['post_id']
-                            if html_info.get('blog_id'):
-                                result['blog_id'] = html_info['blog_id']
-                            result['source'] = html_info.get('source', 'html_post_id')
-                            return result
+                        self.logger.info(f"从HTML中成功提取信息: {html_info}")
+                        return {
+                            'post_id': html_info.get('post_id'),
+                            'blog_id': html_info.get('blog_id'),
+                            'blog_name': html_info.get('blog_name'),
+                            'source': html_info.get('source', 'html_direct')
+                        }
+                    else:
+                        self.logger.warning("从HTML中未找到有效的ID信息")
+                else:
+                    self.logger.warning("无法获取HTML内容")
             except Exception as e:
                 self.logger.error(f"从URL获取HTML内容时出错: {e}")
-                
-            # 如果HTML解析失败或没有找到有用的信息，返回URL解析结果
-            return url_info
-                
+
+            # HTML解析失败，无法提取ID信息
+            self.logger.error("无法从HTML中提取ID信息")
+            return None
+
         except Exception as e:
             self.logger.error(f"从URL提取ID时出错: {e}")
-            
+            return None
+
+    def _test_with_sample_html(self, url: str) -> Dict[str, Any]:
+        """使用示例HTML内容进行测试（用于演示功能）"""
+        # 这个方法用于演示功能，当无法获取真实HTML时使用
+        import os
+        
+        # 查找示例HTML文件
+        sample_html_path = 'response_with_cookies.txt'
+        if os.path.exists(sample_html_path):
+            try:
+                with open(sample_html_path, 'r', encoding='utf-8') as f:
+                    html_content = f.read()
+                
+                self.logger.info(f"使用示例HTML文件进行测试: {sample_html_path}")
+                html_info = extract_ids_from_html(html_content, url)
+                if html_info:
+                    self.logger.info(f"从示例HTML中成功提取信息: {html_info}")
+                    return {
+                        'post_id': html_info.get('post_id'),
+                        'blog_id': html_info.get('blog_id'),
+                        'blog_name': html_info.get('blog_name'),
+                        'source': html_info.get('source', 'html_sample')
+                    }
+            except Exception as e:
+                self.logger.error(f"读取示例HTML文件时出错: {e}")
+        
         return None
     
     def process(self, post_id: str, blog_id: str, blog_name: str = "",
@@ -127,23 +141,19 @@ class BlogProcessor(WorkflowCoordinator):
                 if not blog_id:
                     blog_id = url_info.get('blog_id')
                     
-                # 如果URL提供了blog_name，则尝试获取blog_id
+                # 如果URL提供了blog_name，则使用该名称
                 if not blog_id and url_info.get('blog_name'):
                     blog_name = url_info.get('blog_name')
-                    # 尝试获取blog_id
-                    extracted_blog_id = extract_blog_id_from_name(blog_name, self.client)
-                    if extracted_blog_id:
-                        blog_id = extracted_blog_id
-                        self.logger.info(f"从博客名称 '{blog_name}' 提取到博客ID: {blog_id}")
-                    else:
-                        # 如果无法获取blog_id，但URL中包含blog_name，可以尝试其他方式
-                        self.logger.warning(f"无法从博客名称 '{blog_name}' 获取博客ID，尝试使用其他方法")
+                    self.logger.info(f"从URL中获取到博客名称: {blog_name}")
+                    # 注意：不再尝试通过名称获取博客ID，因为extract_blog_id_from_name方法已被移除
             
             if not post_id:
                 return {"success": False, "error": "帖子ID不能为空"}
             
+            # 注意：这里移除了对blog_id的强制检查，因为在某些情况下可能不需要blog_id
+            # 但我们会记录警告
             if not blog_id:
-                return {"success": False, "error": "博客ID不能为空"}
+                self.logger.warning("博客ID未提供，某些功能可能无法正常工作")
             
             self.logger.info(f"处理博客模式 - 帖子ID: {post_id} | 博客ID: {blog_id}")
             

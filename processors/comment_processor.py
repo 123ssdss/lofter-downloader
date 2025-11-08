@@ -24,7 +24,7 @@ class CommentProcessor(ContentProcessor):
         like_count = comment.get('likeCount', 0)
         ip_location = comment.get('ipLocation', '')
         quote = comment.get('quote', '')
-        emotes = comment.get('emotes', [])
+        replies = comment.get('replies', [])
         
         result = f"{indent}----------\n"
         
@@ -32,31 +32,31 @@ class CommentProcessor(ContentProcessor):
         if is_reply:
             result += f"{indent}回复人：{author}\n"
         else:
-            result += f"{indent}发布人：{author}\n"
+            result += f"{indent}---------- 主评论 ----------\n"
         
-        result += f"{indent}时间：{publish_time}\n"
+        # 添加引用内容（主评论有引用时显示）
+        if not is_reply and quote:
+            result += f"{indent}引用：{quote}\n"
+        
         result += f"{indent}内容：{content}\n"
+        result += f"{indent}作者：{author}\n"
+        result += f"{indent}时间：{publish_time}\n"
         result += f"{indent}点赞数：{like_count}\n"
+        
+        # 添加回复数（主评论有回复时显示）
+        if not is_reply and replies:
+            result += f"{indent}回复数：{len(replies)}\n"
         
         # 添加IP位置信息（如果有）
         if ip_location:
             result += f"{indent}IP属地：{ip_location}\n"
-        
-        # 添加引用内容（如果有）
-        if quote:
-            result += f"{indent}引用：{quote}\n"
-        
-        # 添加表情信息（如果有）
-        if emotes:
-            result += f"{indent}表情：\n"
-            for emote in emotes:
-                result += f"{indent}  - {emote['name']} ({emote['url']})\n"
         
         return result
     
     def format_replies(self, replies: List[Dict[str, Any]], indent_level: int = 1) -> str:
         """格式化回复列表"""
         result = ""
+        result += f"{'    ' * indent_level}---------- 回复列表 ----------\n"
         for idx, reply in enumerate(replies, 1):
             # 格式化回复，使用正确的缩进 - 回复是L2、L3等，取决于上下文
             result += f"{'    ' * indent_level}回复{idx}：\n"
@@ -69,13 +69,6 @@ class CommentProcessor(ContentProcessor):
             ip_location = reply.get('ipLocation', '')
             if ip_location:
                 result += f"{'    ' * (indent_level + 1)}IP属地：{ip_location}\n"
-            
-            # 添加表情信息（如果有）
-            emotes = reply.get('emotes', [])
-            if emotes:
-                result += f"{'    ' * (indent_level + 1)}表情：\n"
-                for emote in emotes:
-                    result += f"{'    ' * (indent_level + 2)}- {emote['name']} ({emote['url']})\n"
             
             result += "\n"  # 每个回复后添加换行
         return result
@@ -105,7 +98,8 @@ class CommentProcessor(ContentProcessor):
             
             # 添加引用（如果存在）
             if quote:
-                result += f"----------({quote})---------- (L{indent_level}-{idx})\n"
+                result += f"----------({quote})----------\n"
+                result += f"---------- (L{indent_level}-{idx})\n"
                 result += self.format_single_comment(comment, indent_level, is_reply=False)
             else:
                 result += f"---------- (L{indent_level}-{idx})\n"
@@ -115,7 +109,6 @@ class CommentProcessor(ContentProcessor):
             # 添加回复部分（如果有回复）
             replies = comment.get('replies', [])
             if replies:
-                result += f"\n{'    ' * indent_level}---回复列表---\n"
                 result += self.format_replies(replies, indent_level + 1)
             
             result += "\n"  # 每个评论块后添加换行
@@ -141,7 +134,6 @@ class CommentProcessor(ContentProcessor):
                 # 添加回复部分（如果有回复）
                 replies = comment.get('replies', [])
                 if replies:
-                    result += f"\n{'    ' * indent_level}---回复列表---\n"
                     result += self.format_replies(replies, indent_level + 1)
                 
                 result += "\n"  # 每个评论块后添加换行
@@ -154,7 +146,6 @@ class CommentProcessor(ContentProcessor):
             # 添加回复部分（如果有回复）
             replies = comment.get('replies', [])
             if replies:
-                result += f"\n{'    ' * indent_level}---回复列表---\n"
                 result += self.format_replies(replies, indent_level + 1)
             
             result += "\n"  # 每个评论块后添加换行

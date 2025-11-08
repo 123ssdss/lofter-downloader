@@ -7,6 +7,7 @@ from typing import Dict, Any, Optional, List
 import time
 import logging
 from utils.path_manager import path_manager
+from utils.logger import BeautifulLogger
 
 
 class BaseProcessor(ABC):
@@ -18,21 +19,14 @@ class BaseProcessor(ABC):
         self.logger = self._setup_logger()
         
     def _setup_logger(self):
-        """设置日志记录器"""
-        logger = logging.getLogger(self.__class__.__name__)
-        if not logger.handlers:
-            handler = logging.StreamHandler()
-            # 设置UTF-8编码以避免编码问题
-            import sys
-            if sys.platform == 'win32':
-                # Windows系统特殊处理
-                handler.stream = open(sys.stdout.fileno(), 'w', encoding='utf-8', buffering=1)
-            formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-            )
-            handler.setFormatter(formatter)
-            logger.addHandler(handler)
-            logger.setLevel(logging.DEBUG if self.debug else logging.INFO)
+        """设置美化日志记录器"""
+        format_type = 'detailed' if self.debug else 'simple'
+        logger = BeautifulLogger.setup_logger(
+            name=self.__class__.__name__,
+            level=logging.DEBUG if self.debug else logging.INFO,
+            format_type=format_type,
+            enable_color=True
+        )
         return logger
     
     @abstractmethod
@@ -100,13 +94,16 @@ class OutputFormatter:
     """输出格式化器"""
     
     @staticmethod
-    def format_post_filename(title: str, author: str, prefix: str = "") -> str:
+    def format_post_filename(title: str, author: str, prefix: str = "", author_id: str = "") -> str:
         """格式化帖子文件名"""
         import re
         
         safe_title = re.sub(r'[\\/*?:"<>|]', '_', title)[:100]
         safe_author = re.sub(r'[\\/*?:"<>|]', '_', author)
-        base_filename = f"({safe_title} by {safe_author})"
+        if author_id:
+            base_filename = f"{safe_title} by {safe_author}[{author_id}]"
+        else:
+            base_filename = f"{safe_title} by {safe_author}"
         if prefix:
             base_filename = f"{prefix} {base_filename}"
         return base_filename

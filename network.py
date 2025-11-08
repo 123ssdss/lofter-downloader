@@ -8,6 +8,7 @@ import requests
 import concurrent.futures
 from config import REQUEST_TIMEOUT, TEXT_MAX_WORKERS, REQUEST_DELAY, BETWEEN_PAGES_DELAY, COMMENT_REQUEST_DELAY, L2_COMMENT_REQUEST_DELAY, COMMENT_MAX_WORKERS
 from config import USER_COOKIE  # Import user-provided cookie from config
+from utils.logger import BeautifulLogger, ProgressDisplay
 
 
 
@@ -24,7 +25,6 @@ SUBSCRIPTION_URL = f"{API_BASE_URL}/newapi/subscribeCollection/list.json"
 FIXED_HEADERS = {
     "user-agent": "LOFTER-Android 8.0.12 (LM-V409N; Android 15; null) WIFI",
     "market": "LGE",
-    "deviceid": "3451efd56bgg6h47",
     "androidid": "3451efd56bgg6h47",
     "accept-encoding": "gzip",
     "x-device": "qv+Dz73SObtbEFG7P0Gq12HkjzNb+iOK6KHWTPKHBTEZu26C6MJOMukkAG7dETo2",
@@ -56,6 +56,7 @@ class LofterClient:
     def __init__(self, headers=None, debug=False):
        self.session = requests.Session()
        self.debug = debug
+       self.logger = BeautifulLogger.create_debug_logger("LofterClient")
 
        self.session.headers.update(FIXED_HEADERS)
        if headers:
@@ -65,7 +66,7 @@ class LofterClient:
         if self.debug:
             # 确保消息在打印时不会因为编码问题而失败
             safe_message = str(message).encode('utf-8', 'replace').decode('utf-8')
-            print(f"[DEBUG] {datetime.now().strftime('%H:%M:%S')} - {safe_message}")
+            self.logger.debug(safe_message)
     def _make_request(self, method, url, params=None, data=None, headers=None, max_retries=3):
         """Makes an HTTP request with retry logic."""
         self._log(f"Request: {method} {url}")
@@ -92,12 +93,31 @@ class LofterClient:
                     response.raise_for_status()
                     json_response = response.json()
                     self._log("Successfully decoded JSON response.")
+                    
+                    # Check for API error in response content
+                    if isinstance(json_response, dict) and json_response.get("code") == 500:
+                        error_msg = json_response.get("msg", "Unknown error")
+                        self._log(f"API error: {error_msg} (attempt {attempt + 1}/{max_retries})")
+                        if attempt < max_retries - 1:
+                            wait_time = 3 + 2 ** attempt  # 3, 5, 9 seconds
+                            self._log(f"Retrying in {wait_time} seconds...")
+                            time.sleep(wait_time)
+                            continue
+                        else:
+                            self._log(f"All retry attempts failed for request to {url}")
+                            return None
+                    
                     return json_response
                 except (requests.RequestException, json.JSONDecodeError) as e:
                     self._log(f"Request to {url} failed (attempt {attempt + 1}/{max_retries}): {e}")
                     if 'response' in locals() and hasattr(response, 'text'):
                         self._log(f"Response text on error: {response.text[:500]}...")
-                    time.sleep(2 ** attempt)
+                    if attempt < max_retries - 1:
+                        wait_time = 3 + 2 ** attempt  # 3, 5, 9 seconds
+                        self._log(f"Retrying network error in {wait_time} seconds...")
+                        time.sleep(wait_time)
+                    else:
+                        return None
         except Exception as e:
             self._log(f"Unhandled exception during request: {e}")
         return None
@@ -120,8 +140,8 @@ class LofterClient:
         permalinks = set()
         offset = 0
         
-        sys.stdout.write(f"Fetching posts for tag: {tag}\r")
-        sys.stdout.flush()
+        # 使用纯文字显示替代进度条，INFO显示为绿色
+        print(f"\033[32m[INFO]\033[0m LofterClient 开始获取标签 '{tag}' 的帖子内容...")
 
         while True:
             data = {
@@ -160,12 +180,10 @@ class LofterClient:
                 permalinks.add(post["postData"]["postView"]["permalink"])
 
             offset = response["data"]["offset"]
-            sys.stdout.write(f"Tag '{tag}': Fetched {len(all_posts)} posts...\r")
-            sys.stdout.flush()
+            print(f"\033[32m[INFO]\033[0m LofterClient 获取标签 '{tag}': {len(all_posts)} 个帖子")
             time.sleep(BETWEEN_PAGES_DELAY)
         
-        sys.stdout.write("\033[K")
-        print(f"Tag '{tag}': Fetching complete. Found {len(all_posts)} unique posts.")
+        print(f"\033[32m[INFO]\033[0m LofterClient 标签 '{tag}' 获取完成: {len(all_posts)} 个独特帖子")
         
         # 保存完整的响应到JSON文件
         self._save_tag_responses(tag, all_responses)
@@ -809,15 +827,16 @@ class LofterClient:
 
        return None
 
-    def fetch_subscription_collections(self, limit=50):
-       """Fetches all subscription collections from user's subscriptions."""
+    def fetch_subscription_collections(self):
+       """Fetches all subscription collections from user's subscriptions until completion."""
        # 重新实现此方法以使用get_subs方法，确保只发送选中的cookie类型
        all_collections = []
        offset = 0
+       limit_once = 50  # 每次请求获取的数量
        total_expected = float('inf')  # Will update from response
        
        # 使用get_subs方法，它会正确处理选中的cookie类型
-       response = self.get_subs(None, offset, limit)
+       response = self.get_subs(offset, limit_once)
        if not response:
            return []
            
@@ -836,27 +855,26 @@ class LofterClient:
        collections = data.get("collections", [])
        all_collections.extend(collections)
 
-       # 获取剩余的集合
-       if total_expected > limit:
-           for i in range(limit, total_expected, limit):
-               response = self.get_subs(None, i, limit)
-               if not response:
-                   break
-               data = response.get('data')
-               if not data:
-                   break
-               collections = data.get("collections", [])
-               all_collections.extend(collections)
-               if len(collections) < limit:
-                   break  # 没有更多数据了
+       # 获取剩余的集合，直到获取完为止
+       while len(all_collections) < total_expected:
+           response = self.get_subs(len(all_collections), limit_once)
+           if not response:
+               break
+           data = response.get('data')
+           if not data:
+               break
+           collections = data.get("collections", [])
+           if not collections:
+               break  # 没有更多数据了
+           all_collections.extend(collections)
 
        return all_collections
 
-    def fetch_subscription_posts(self, limit=50):
+    def fetch_subscription_posts(self):
        """Fetches all post metadata from user's subscriptions."""
        # For now, we'll return the collection data as posts so the main flow works
        # This is for backward compatibility with the existing main.py code
-       collections = self.fetch_subscription_collections(limit)
+       collections = self.fetch_subscription_collections()
        # Convert collections to a format that looks like posts for compatibility
        posts_format = []
        for collection in collections:
@@ -918,7 +936,7 @@ class LofterClient:
        os.makedirs(save_path, exist_ok=True)  # 确保 ./results 目录存在
 
        start = 0 # 起始位置
-       response = self.get_subs(auth_info, start)
+       response = self.get_subs(start)
        if not response:
            print("获取订阅列表失败")
            return
@@ -930,7 +948,7 @@ class LofterClient:
        if subscribeCollectionCount > limit_once:
            for i in range(limit_once, subscribeCollectionCount, limit_once):
                time.sleep(sleep_time)
-               response = self.get_subs(auth_info, i, limit_once)
+               response = self.get_subs(i, limit_once)
                if response:
                    data = response['data']
                    collections += data['collections']
@@ -969,3 +987,48 @@ class LofterClient:
        with open(user_json_path, 'w', encoding='utf-8') as f:
            json.dump(collections, f, ensure_ascii=False, indent=2)
        print(f'订阅信息JSON保存至 {user_json_path}')
+
+    def fetch_html_content(self, url, timeout=30):
+        """
+        获取URL的HTML内容，支持cookies认证
+
+        Args:
+            url (str): 要访问的URL
+            timeout (int): 超时时间（秒）
+
+        Returns:
+            str: HTML内容，如果失败则返回None
+        """
+        try:
+            self._log(f"正在访问URL获取HTML内容: {url}")
+
+            # 准备cookies
+            cookies = {}
+            if USER_COOKIE:
+                cookies[USER_COOKIE["name"]] = USER_COOKIE["value"]
+
+            # 准备浏览器headers（不要使用API的FIXED_HEADERS）
+            browser_headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1'
+            }
+
+            # 使用独立的requests调用，避免session中的API headers干扰
+            import requests
+            response = requests.get(url, cookies=cookies, headers=browser_headers, timeout=timeout)
+            
+            if response.status_code == 200:
+                self._log(f"成功获取HTML内容，长度: {len(response.text)}")
+                return response.text
+            else:
+                self._log(f"访问URL失败，状态码: {response.status_code}")
+                return None
+                
+        except Exception as e:
+            self._log(f"获取HTML内容时出错: {e}")
+            return None

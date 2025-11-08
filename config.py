@@ -25,8 +25,8 @@ MAX_RETRIES = 3
 # 这些基本没有速度限制
 REQUEST_DELAY = 1  # 通用请求间隔时间（秒）
 TAG_POST_REQUEST_DELAY = 0.05  # 标签帖子请求间隔时间（秒）
-COLLECTION_REQUEST_DELAY = 0.01 # 合集请求间隔时间（秒）
-POST_DETAIL_REQUEST_DELAY = 0.005  # 帖子详情请求间隔时间（秒）
+COLLECTION_REQUEST_DELAY = 0.5 # 合集请求间隔时间（秒）
+POST_DETAIL_REQUEST_DELAY = 0.2  # 帖子详情请求间隔时间（秒）
 BETWEEN_PAGES_DELAY = 0.5  # 页面间请求间隔时间（秒）
 BETWEEN_BATCHES_DELAY = 1.0  # 批处理间间隔时间（秒）
 
@@ -51,10 +51,10 @@ DEFAULT_BLOG_TYPE = "0" # 博客类型
 # True: 使用v2方法（按相同引用内容分组）
 # False: 使用v1方法（原始顺序）
 # 临时配置，后续会根据实际情况调整
-GROUP_COMMENTS_BY_QUOTE = True
+GROUP_COMMENTS_BY_QUOTE = False
 
 # User-provided cookie configuration
 USER_COOKIE = {
-    "name": "LOFTER-PHONE-LOGIN-AUTH",
-    "value": "none"
+    "name": "Authorization",
+    "value": "your cookie"
 }

@@ -73,12 +73,14 @@ class CommentModeProcessor(WorkflowCoordinator):
         try:
             post = post_detail["response"]["posts"][0]["post"]
             title = post.get("title", "Untitled")
-            author = post["blogInfo"].get("blogNickName", "Unknown Author")
+            blog_info = post["blogInfo"]
+            author = blog_info.get("blogNickName", "Unknown Author")
+            author_id = blog_info.get("blogName", "Unknown ID")  # 使用blogName代替blogId
             
             # 创建安全的文件名
             safe_title = re.sub(r'[\\/*?:"<>|]', '_', title)[:100]
             safe_author = re.sub(r'[\\/*?:"<>|]', '_', author)
-            base_filename = f"({safe_title} by {safe_author})"
+            base_filename = f"{safe_title} by {safe_author}[{author_id}]"
             
             return base_filename
             

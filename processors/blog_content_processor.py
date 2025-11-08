@@ -323,10 +323,12 @@ class BlogContentProcessor(ContentProcessor):
             # 获取帖子信息用于生成文件名
             post = post_detail_json["response"]["posts"][0]["post"]
             title = post.get("title", "Untitled")
-            author = post["blogInfo"].get("blogNickName", "Unknown Author")
+            blog_info = post["blogInfo"]
+            author = blog_info.get("blogNickName", "Unknown Author")
+            author_id = blog_info.get("blogName", "Unknown ID")  # 使用blogName代替blogId
             
             # 生成基础文件名
-            base_filename = self.output_formatter.format_post_filename(title, author, name_prefix)
+            base_filename = self.output_formatter.format_post_filename(title, author, name_prefix, author_id)
             
             # 转换source_type到模式名称
             mode_mapping = {

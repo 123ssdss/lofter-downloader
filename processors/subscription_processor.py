@@ -18,22 +18,12 @@ class SubscriptionProcessor(BaseProcessor):
     def fetch_subscription_list(self) -> List[Dict[str, Any]]:
         """获取订阅列表"""
         try:
-            # 直接调用LofterClient中的方法，该方法内部会处理认证信息
-            response = self.client.get_subs()
+            # 使用fetch_subscription_collections方法获取所有订阅，而不是只获取一页
+            subscription_data = self.client.fetch_subscription_collections()
             
-            if not response:
+            if not subscription_data:
                 self.logger.warning("没有获取到订阅数据")
                 return []
-            
-            # 从响应中提取数据
-            if isinstance(response, dict) and 'data' in response:
-                data = response['data']
-                if isinstance(data, dict) and 'collections' in data:
-                    subscription_data = data['collections']
-                else:
-                    subscription_data = data if isinstance(data, list) else []
-            else:
-                subscription_data = response if isinstance(response, list) else []
             
             self.logger.info(f"获取到 {len(subscription_data)} 个订阅")
             return subscription_data

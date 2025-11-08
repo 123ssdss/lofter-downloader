@@ -48,81 +48,81 @@ class TagProcessor(WorkflowCoordinator):
             self.handle_error(e, f"处理标签帖子 {post_id}")
             return {}
     
-    def process_single_tag(self, tag: str, list_type: str = DEFAULT_LIST_TYPE,
-                          timelimit: str = DEFAULT_TIME_LIMIT, blog_type: str = DEFAULT_BLOG_TYPE,
-                          download_comments: bool = False,
-                          download_images: bool = True) -> Dict[str, Any]:
-        """处理单个标签"""
-        try:
-            self.logger.info(f"开始处理标签 '{tag}'...")
-            
-            # 获取标签下的帖子
-            posts = self.fetch_posts_by_tag(tag, list_type, timelimit, blog_type)
-            
-            if not posts:
-                self.logger.info(f"标签 '{tag}' 没有找到帖子")
-                return {"success": True, "message": f"标签 '{tag}' 没有找到帖子"}
-            
-            # 处理所有帖子
-            processed_posts = []
-            failed_posts = []
-            
-            def process_post_with_delay(post_meta, index):
-                try:
-                    result = self.process_single_tag_post(
-                        post_meta, tag, download_comments, download_images
-                    )
-                    
-                    # 添加请求延迟
-                    import time
-                    time.sleep(TAG_POST_REQUEST_DELAY)
-                    
-                    if result:
-                        return result
-                    else:
-                        post_id = post_meta.get('postData', {}).get('postView', {}).get('id', 'Unknown')
-                        return (None, post_id)
-                    
-                except Exception as e:
-                    post_id = post_meta.get('postData', {}).get('postView', {}).get('id', 'Unknown')
-                    self.handle_error(e, f"处理标签帖子 {post_id}")
-                    return (None, post_id)
-            
-            # 使用工作流协调器处理进度并收集结果
-            results = self.process_with_progress_with_results(
-                posts,
-                process_post_with_delay,
-                f"Tag '{tag}'"
-            )
-            
-            # 处理结果
-            for result in results:
-                if isinstance(result, tuple) and len(result) == 2 and result[0] is None:
-                    # 失败的情况
-                    failed_posts.append(result[1])
-                elif result:
-                    # 成功的情况
-                    processed_posts.append(result)
-            
-            # 返回处理结果
-            result = {
-                "success": True,
-                "tag_name": tag,
-                "list_type": list_type,
-                "timelimit": timelimit,
-                "blog_type": blog_type,
-                "total_posts": len(posts),
-                "processed_posts": len(processed_posts),
-                "failed_posts": len(failed_posts),
-                "failed_post_ids": failed_posts
-            }
-            
-            self.logger.info(f"标签 '{tag}' 处理完成: {len(processed_posts)}/{len(posts)} 成功")
-            
-            return result
-            
-        except Exception as e:
-            self.handle_error(e, f"处理标签 {tag}")
+    def process_single_tag(self, tag: str, list_type: str = DEFAULT_LIST_TYPE,
+                          timelimit: str = DEFAULT_TIME_LIMIT, blog_type: str = DEFAULT_BLOG_TYPE,
+                          download_comments: bool = False,
+                          download_images: bool = True) -> Dict[str, Any]:
+        """处理单个标签"""
+        try:
+            self.logger.info(f"开始处理标签 '{tag}'...")
+            
+            # 获取标签下的帖子
+            posts = self.fetch_posts_by_tag(tag, list_type, timelimit, blog_type)
+            
+            if not posts:
+                self.logger.info(f"标签 '{tag}' 没有找到帖子")
+                return {"success": True, "message": f"标签 '{tag}' 没有找到帖子"}
+            
+            # 处理所有帖子
+            processed_posts = []
+            failed_posts = []
+            
+            def process_post_with_delay(post_meta, index):
+                try:
+                    result = self.process_single_tag_post(
+                        post_meta, tag, download_comments, download_images
+                    )
+                    
+                    # 添加请求延迟
+                    import time
+                    time.sleep(TAG_POST_REQUEST_DELAY)
+                    
+                    if result:
+                        return result
+                    else:
+                        post_id = post_meta.get('postData', {}).get('postView', {}).get('id', 'Unknown')
+                        return (None, post_id)
+                    
+                except Exception as e:
+                    post_id = post_meta.get('postData', {}).get('postView', {}).get('id', 'Unknown')
+                    self.handle_error(e, f"处理标签帖子 {post_id}")
+                    return (None, post_id)
+            
+            # 使用工作流协调器处理进度并收集结果
+            results = self.process_with_progress_with_results(
+                posts,
+                process_post_with_delay,
+                f"Tag '{tag}'"
+            )
+            
+            # 处理结果
+            for result in results:
+                if isinstance(result, tuple) and len(result) == 2 and result[0] is None:
+                    # 失败的情况
+                    failed_posts.append(result[1])
+                elif result:
+                    # 成功的情况
+                    processed_posts.append(result)
+            
+            # 返回处理结果
+            result = {
+                "success": True,
+                "tag_name": tag,
+                "list_type": list_type,
+                "timelimit": timelimit,
+                "blog_type": blog_type,
+                "total_posts": len(posts),
+                "processed_posts": len(processed_posts),
+                "failed_posts": len(failed_posts),
+                "failed_post_ids": failed_posts
+            }
+            
+            self.logger.info(f"标签 '{tag}' 处理完成: {len(processed_posts)}/{len(posts)} 成功")
+            
+            return result
+            
+        except Exception as e:
+            self.handle_error(e, f"处理标签 {tag}")
             return {"success": False, "error": str(e)}
     
     def process(self, tags: List[str], list_type: str = DEFAULT_LIST_TYPE,
