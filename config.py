@@ -1,5 +1,6 @@
 # Lofter爬虫项目配置文件
 import os
+from cookie_config import USER_COOKIE
 
 # 基础路径配置
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -53,8 +54,3 @@ DEFAULT_BLOG_TYPE = "0" # 博客类型
 # 临时配置，后续会根据实际情况调整
 GROUP_COMMENTS_BY_QUOTE = False
 
-# User-provided cookie configuration
-USER_COOKIE = {
-    "name": "Authorization",
-    "value": "your cookie"
-}

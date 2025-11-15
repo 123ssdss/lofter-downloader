@@ -165,6 +165,7 @@ class OutputFormatter:
         publish_time = datetime.fromtimestamp(post.get("publishTime", 0) / 1000).strftime('%Y-%m-%d %H:%M:%S')
         author = blog_info.get("blogNickName", "Unknown Author")
         blog_id = blog_info.get("blogId", "Unknown ID")
+        blog_name = blog_info.get("blogName", "Unknown Name")
         blog_url = post.get("blogPageUrl", "")
         post_tags = ", ".join(post.get("tagList", []))
         
@@ -173,6 +174,7 @@ class OutputFormatter:
             "publish_time": publish_time,
             "author": author,
             "blog_id": blog_id,
+            "blog_name": blog_name,
             "blog_url": blog_url,
             "tags": post_tags
         }

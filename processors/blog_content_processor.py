@@ -167,7 +167,7 @@ class BlogContentProcessor(ContentProcessor):
                 f"标题: {metadata.get('title', 'Untitled')}",
                 f"发布时间: {metadata.get('publish_time', '')}",
                 f"作者: {metadata.get('author', 'Unknown Author')}",
-                f"作者LOFTERID: {metadata.get('blog_id', 'Unknown ID')}",
+                f"作者LOFTERID: {metadata.get('blog_name', 'Unknown Name')}",
                 f"Tags: {metadata.get('tags', '')}",
                 f"Link: {metadata.get('blog_url', '')}",
                 "",
