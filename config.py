@@ -48,9 +48,3 @@ DEFAULT_LIST_TYPE = "total"
 DEFAULT_TIME_LIMIT = "" #时间限制，空字符串表示不限制
 DEFAULT_BLOG_TYPE = "0" # 博客类型
 
-# 评论处理方法配置
-# True: 使用v2方法（按相同引用内容分组）
-# False: 使用v1方法（原始顺序）
-# 临时配置，后续会根据实际情况调整
-GROUP_COMMENTS_BY_QUOTE = False
-
