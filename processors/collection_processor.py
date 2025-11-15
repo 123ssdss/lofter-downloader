@@ -19,15 +19,16 @@ class CollectionProcessor(WorkflowCoordinator):
     def make_valid_filename(self, filename: str) -> str:
         """创建有效的文件名"""
         try:
-            # 步骤 1: 移除或替换所有非 ASCII 字符，以避免在 Windows GBK 环境下进行字符串操作时出现隐式编码错误
-            # 使用 'ignore' 忽略无法编码的字符，确保字符串是 ASCII 安全的
-            ascii_safe_filename = filename.encode('ascii', 'ignore').decode('ascii')
+            # 步骤 1: 处理文件系统不允许的字符
+            safe_filename = re.sub(r'[\\/*?:"<>|]', '_', filename)
             
-            # 步骤 2: 处理文件系统不允许的字符
-            safe_filename = re.sub(r'[\\/*?:"<>|]', '_', ascii_safe_filename)
-            
-            # 步骤 3: 移除或替换可能导致编码问题的字符 (保留原有的 UTF-8 忽略逻辑，以防万一)
+            # 步骤 2: 确保UTF-8兼容性
             safe_filename = safe_filename.encode('utf-8', 'ignore').decode('utf-8')
+            
+            # 步骤 3: 如果文件名为空（可能被过滤掉了），使用默认名称
+            if not safe_filename or safe_filename.strip() == '':
+                return "Unknown_Collection"
+                
             return safe_filename
         except Exception as e:
             # 确保日志中的文件名是安全的，使用 repr()
@@ -45,7 +46,13 @@ class CollectionProcessor(WorkflowCoordinator):
                 return {}
             
             collection_info = collection_meta['collection']
-            collection_name_raw = collection_info.get('name', 'Unknown Collection')
+            collection_name_raw = collection_info.get('name', '')
+            
+            # 如果没有获取到合集名称，使用collection_id作为名字
+            if not collection_name_raw or collection_name_raw.strip() == '':
+                collection_name_raw = f"collection_{collection_id}"
+                self.logger.debug(f"合集名称为空，使用ID作为名称: {collection_name_raw}")
+            
             self.logger.debug(f"合集信息: Name={repr(collection_name_raw)}, PostCount={collection_info.get('postCount')}")
             
             # 确保传递给 make_valid_filename 的是字符串类型
