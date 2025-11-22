@@ -24,13 +24,22 @@ class CommentProcessor(ContentProcessor):
         ip_location = comment.get('ipLocation', '')
         quote = comment.get('quote', '')
         replies = comment.get('replies', [])
-        emotes = comment.get('emotes', [])
+        
+        result = ""
+        
+        # 添加分隔线（主评论前）
+        if not is_reply:
+            result += f"{indent}——————————————————————————\n"
+        
+        # 添加引用内容（如果有）
+        if quote:
+            result += f"{indent}引用：{quote}\n"
         
         # 使用不同的标签回复和主评论
         if is_reply:
-            result = f"{indent}回复人：{author}\n"
+            result += f"{indent}作者：{author}\n"
         else:
-            result = f"\n发布人：{author}\n"
+            result += f"{indent}发布人：{author}\n"
         
         result += f"{indent}时间：{publish_time}\n"
         result += f"{indent}内容：{content}\n"
@@ -40,21 +49,14 @@ class CommentProcessor(ContentProcessor):
         if ip_location:
             result += f"{indent}IP属地：{ip_location}\n"
         
-        # 添加引用内容（如果有）
-        if quote:
-            result += f"{indent}引用：{quote}\n"
-        
-        # 添加表情信息（如果有）- 只显示表情名称，不显示URL
-        if emotes:
-            result += f"{indent}表情：\n"
-            for emote in emotes:
-                emote_name = emote.get('name', 'Unknown')
-                result += f"{indent}  - {emote_name}\n"
-        
         # 添加回复部分（如果有）
         if replies:
-            result += f"{indent}\n---回复列表---\n"
+            result += f"{indent}\n————回复列表————\n"
             for idx, reply in enumerate(replies, 1):
+                reply_quote = reply.get('quote', '')
+                if reply_quote:
+                    result += f"{indent}引用：{reply_quote}\n"
+                
                 result += f"{indent}回复{idx}：\n"
                 result += f"{indent}  作者：{reply.get('author', {}).get('blogNickName', 'Unknown')}\n"
                 result += f"{indent}  时间：{reply.get('publishTimeFormatted', '')}\n"
@@ -65,14 +67,6 @@ class CommentProcessor(ContentProcessor):
                 reply_ip_location = reply.get('ipLocation', '')
                 if reply_ip_location:
                     result += f"{indent}  IP属地：{reply_ip_location}\n"
-                
-                # 添加表情信息（如果有）- 只显示表情名称
-                reply_emotes = reply.get('emotes', [])
-                if reply_emotes:
-                    result += f"{indent}  表情：\n"
-                    for emote in reply_emotes:
-                        emote_name = emote.get('name', 'Unknown')
-                        result += f"{indent}    - {emote_name}\n"
             
             result += f"{indent}\n"
         
@@ -86,12 +80,6 @@ class CommentProcessor(ContentProcessor):
         result = ""
         
         for comment in comments_data:
-            quote = comment.get('quote', '')
-            
-            # 添加引用（如果存在）
-            if quote:
-                result += f"----------({quote})----------\n"
-            
             result += self.format_single_comment(comment, indent_level, is_reply=False)
         
         return result
@@ -102,9 +90,9 @@ class CommentProcessor(ContentProcessor):
             # 检查返回的数据结构是新的还是旧的
             if isinstance(structured_comments, dict) and "hot_list" in structured_comments and "all_list" in structured_comments:
                 # 新结构: 包含hot_list和all_list
-                result = "[热门评论]"
+                result = "[热门评论]\n"
                 result += self.format_comments_recursive(structured_comments["hot_list"])
-                result += "\n[全部评论]"
+                result += "\n[全部评论]\n"
                 result += self.format_comments_recursive(structured_comments["all_list"])
                 return result
             else:
