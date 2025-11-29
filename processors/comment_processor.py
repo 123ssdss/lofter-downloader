@@ -18,6 +18,7 @@ class CommentProcessor(ContentProcessor):
         """格式化单个评论及其回复，去除表情URL显示"""
         indent = "    " * indent_level
         author = comment.get("author", {}).get("blogNickName", "Unknown")
+        blog_name = comment.get("author", {}).get("blogName", "")
         content = comment.get('content', '').strip()
         publish_time = comment.get('publishTimeFormatted', '')
         like_count = comment.get('likeCount', 0)
@@ -37,9 +38,9 @@ class CommentProcessor(ContentProcessor):
         
         # 使用不同的标签回复和主评论
         if is_reply:
-            result += f"{indent}作者：{author}\n"
+            result += f"{indent}作者：{author}{f'[{blog_name}]' if blog_name else ''}\n"
         else:
-            result += f"{indent}发布人：{author}\n"
+            result += f"{indent}发布人：{author}{f'[{blog_name}]' if blog_name else ''}\n"
         
         result += f"{indent}时间：{publish_time}\n"
         result += f"{indent}内容：{content}\n"
@@ -57,8 +58,11 @@ class CommentProcessor(ContentProcessor):
                 if reply_quote:
                     result += f"{indent}引用：{reply_quote}\n"
                 
+                reply_author = reply.get('author', {}).get('blogNickName', 'Unknown')
+                reply_blog_name = reply.get('author', {}).get('blogName', '')
+                
                 result += f"{indent}回复{idx}：\n"
-                result += f"{indent}  作者：{reply.get('author', {}).get('blogNickName', 'Unknown')}\n"
+                result += f"{indent}  作者：{reply_author}{f'[{reply_blog_name}]' if reply_blog_name else ''}\n"
                 result += f"{indent}  时间：{reply.get('publishTimeFormatted', '')}\n"
                 result += f"{indent}  内容：{reply.get('content', '').strip()}\n"
                 result += f"{indent}  点赞数：{reply.get('likeCount', 0)}\n"
