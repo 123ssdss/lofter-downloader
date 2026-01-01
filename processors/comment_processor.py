@@ -29,6 +29,7 @@ class CommentProcessor(ContentProcessor):
         ip_location = comment.get("ipLocation", "")
         quote = comment.get("quote", "")
         replies = comment.get("replies", [])
+        emotes = comment.get("emotes", [])
 
         result = ""
 
@@ -56,6 +57,12 @@ class CommentProcessor(ContentProcessor):
         if ip_location:
             result += f"{indent}IP属地：{ip_location}\n"
 
+        # 添加表情信息（如果有）
+        if emotes:
+            result += f"{indent}表情：\n"
+            for emote in emotes:
+                result += f"{indent}  - {emote.get('name', 'unknown')} ({emote.get('url', '')})\n"
+
         # 添加回复部分（如果有）
         if replies:
             result += f"{indent}\n————回复列表————\n"
@@ -77,6 +84,13 @@ class CommentProcessor(ContentProcessor):
                 reply_ip_location = reply.get("ipLocation", "")
                 if reply_ip_location:
                     result += f"{indent}  IP属地：{reply_ip_location}\n"
+
+                # 添加表情信息（如果有）
+                reply_emotes = reply.get("emotes", [])
+                if reply_emotes:
+                    result += f"{indent}  表情：\n"
+                    for emote in reply_emotes:
+                        result += f"{indent}    - {emote.get('name', 'unknown')} ({emote.get('url', '')})\n"
 
             result += f"{indent}\n"
 
