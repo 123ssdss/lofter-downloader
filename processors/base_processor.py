@@ -146,6 +146,13 @@ class OutputFormatter:
         # 使用替换函数处理所有<a>标签
         processed_text = re.sub(r'<a\s+href\s*=\s*["\']([^"\']*)["\'][^>]*>(.*?)</a>', replace_link, text, flags=re.IGNORECASE | re.DOTALL)
         
+        # 处理<img>标签，提取图片URL
+        def replace_img(match):
+            src = match.group(1)
+            return f"\n[图片] {src}\n"
+        
+        processed_text = re.sub(r'<img\s+[^>]*src\s*=\s*["\']([^"\']*)["\'][^>]*>', replace_img, processed_text, flags=re.IGNORECASE)
+        
         # 处理其他HTML标签
         processed_text = re.sub(r'<br\s*/?>', '\n', processed_text, flags=re.IGNORECASE)
         processed_text = re.sub(r'</p>', '\n\n', processed_text, flags=re.IGNORECASE)
