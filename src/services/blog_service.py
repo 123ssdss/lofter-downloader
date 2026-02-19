@@ -301,36 +301,50 @@ class BlogService:
 
     def _extract_ids_from_url(self, url: str):
         """
-        从 Lofter 帖子 URL 中提取 post_id（十六进制）和数字 blog_id。
-        使用浏览器 headers 请求页面 HTML，从 JSON 元数据中提取数字 ID，
-        不使用 Lofter Android 客户端 headers。
+        从帖子页面 HTML 中提取 post_id / blog_id。
+        按用户要求：不再从 URL 正则提取，全部依赖 HTML 解析。
         """
-        post_id   = None
-        blog_id   = None   # 始终尝试获取数字 ID
-        blog_name = None   # URL 中的博客名（如 "zuodaoxing"）
+        post_id = None
+        blog_id = None
 
-        # 从 URL 结构提取十六进制 post_id 和博客名
-        m = re.search(r"/post/([a-zA-Z0-9]+)", url)
-        if m:
-            post_id = m.group(1)
-
-        m2 = re.search(r"//([^.]+)\.lofter\.com", url)
-        if m2:
-            blog_name = m2.group(1)
-
-        # 用浏览器 headers 请求 HTML 页面，从中提取数字 blogId
-        # (fetch_html 内部已使用 User-Agent: Chrome + CookieJar，不使用 Android headers)
+        # 使用浏览器 headers + Cookie 访问页面（在 fetch_html 内实现）
         html_content = self._client.fetch_html(url)
-        if html_content:
-            m3 = re.search(r'"blogId"\s*:\s*(\d+)', html_content)
-            m4 = re.search(r'"postId"\s*:\s*(\d+)', html_content)
-            if m3:
-                blog_id = m3.group(1)   # 数字 ID
-            if m4 and not post_id:
-                post_id = m4.group(1)
+        if not html_content or not html_content.strip():
+            self._log.error("从 URL 获取 HTML 失败，无法提取 post_id/blog_id")
+            return None, None
 
-        # 兜底：若 HTML 中无数字 ID，回退到博客名（可能导致 API 失败）
-        if not blog_id:
-            blog_id = blog_name
+        # 1) control_frame: ...control?blogId=123&postId=30b9c9c3
+        m = re.search(
+            r'<iframe[^>]*id=["\']control_frame["\'][^>]*src=["\'][^"\']*'
+            r'lofter\.com/control\?blogId=(\d+)(?:&|&amp;)postId=([a-zA-Z0-9_]+)',
+            html_content,
+            flags=re.IGNORECASE,
+        )
+        if m:
+            blog_id, post_id = m.group(1), m.group(2)
+            return post_id, blog_id
 
-        return post_id, blog_id
+        # 2) comment_frame: ...pid=30b9c9c3&bid=123
+        m = re.search(
+            r'<iframe[^>]*id=["\']comment_frame["\'][^>]*src=["\'][^"\']*'
+            r'pid=([a-zA-Z0-9_]+)(?:&|&amp;)bid=(\d+)',
+            html_content,
+            flags=re.IGNORECASE,
+        )
+        if m:
+            post_id, blog_id = m.group(1), m.group(2)
+            return post_id, blog_id
+
+        # 3) 内嵌 JSON: "blogId":123 / "postId":"30b9c9c3"
+        m_blog = re.search(r'"blogId"\s*:\s*(\d+)', html_content)
+        m_post = re.search(r'"postId"\s*:\s*"?([a-zA-Z0-9_]+)"?', html_content)
+        if m_blog:
+            blog_id = m_blog.group(1)
+        if m_post:
+            post_id = m_post.group(1)
+
+        if post_id and blog_id:
+            return post_id, blog_id
+
+        self._log.error("HTML 解析失败：未找到有效的 post_id/blog_id")
+        return None, None
