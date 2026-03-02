@@ -30,7 +30,7 @@ pip install requests
 
 ### 3. 配置认证信息
 
-将您的 Lofter 认证信息添加到 `config.py` 文件中：
+将您的 Lofter 认证信息添加到 `cookie.py` 文件中：
 
 ```python
 USER_COOKIE = {
@@ -109,18 +109,35 @@ python main.py subscription
 
 ### config.py
 项目配置文件包含以下设置：
-- 网络请求配置 (超时时间等)
-- 速率限制 (请求间隔时间)
-  - REQUEST_DELAY：通用请求间隔时间（秒）
-  - TAG_POST_REQUEST_DELAY：标签帖子请求间隔时间（秒）
-  - COLLECTION_REQUEST_DELAY：合集请求间隔时间（秒）
-  - POST_DETAIL_REQUEST_DELAY：帖子详情请求间隔时间（秒）
-  - COMMENT_REQUEST_DELAY：评论请求间隔时间（秒）
-  - BETWEEN_PAGES_DELAY：页面间请求间隔时间（秒）
-  - BETWEEN_BATCHES_DELAY：批处理间间隔时间（秒）
-- 并发设置 (图片和文本下载的线程数)
-  - PHOTO_MAX_WORKERS：图片下载最大线程数
-  - TEXT_MAX_WORKERS：文本处理最大线程数
-  - COMMENT_MAX_WORKERS：评论处理最大线程数
-- 默认参数设置
+
+- **目录配置**
+  - `BASE_DIR`：项目根目录
+  - `OUTPUT_DIR`、`JSON_DIR`、`PHOTO_DIR`、`LOGS_DIR`：输出目录路径，会在运行时创建
+
+- **网络请求**
+  - `REQUEST_TIMEOUT`：请求超时时间（秒）
+  - `MAX_RETRIES`：最大重试次数
+
+- **速率限制（秒）**
+  - `REQUEST_DELAY`：通用请求间隔时间
+  - `TAG_POST_REQUEST_DELAY`：标签帖子请求间隔
+  - `COLLECTION_REQUEST_DELAY`：合集请求间隔
+  - `POST_DETAIL_REQUEST_DELAY`：帖子详情请求间隔
+  - `BETWEEN_PAGES_DELAY`：页面间请求间隔
+  - `BETWEEN_BATCHES_DELAY`：批处理间间隔
+
+- **评论延迟（秒）**
+  - `COMMENT_REQUEST_DELAY`：一级评论请求间隔
+  - `L2_COMMENT_REQUEST_DELAY`：二级评论请求间隔
+  - `COMMENT_MAX_WORKERS`：评论处理最大线程数
+
+- **并发**
+  - `PHOTO_MAX_WORKERS`：图片下载线程数（永远生效）
+  - `TEXT_MAX_WORKERS`：文本处理线程数
+  - `DEFAULT_POST_WORKERS`：帖子级并发，默认为1，可由 `--threads` 覆盖
+
+- **标签默认参数**
+  - `DEFAULT_LIST_TYPE`：标签模式下的列表类型（默认 `total`）
+  - `DEFAULT_TIME_LIMIT`：时间限制，空字符串表示不限制
+  - `DEFAULT_BLOG_TYPE`：博客类型（默认 `0`）
 

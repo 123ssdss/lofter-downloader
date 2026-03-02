@@ -1,50 +1,42 @@
-# Lofter爬虫项目配置文件
+"""
+Lofter 下载器 - 全局配置文件
+所有可调节的参数均在此处配置（不含 cookie，cookie 见 cookie.py）
+"""
 import os
-from cookie_config import USER_COOKIE
 
-# 基础路径配置
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# ── 目录配置 ─────────────────────────────────────────────────
+BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_DIR = os.path.join(BASE_DIR, "output")
+JSON_DIR   = os.path.join(BASE_DIR, "json")
+PHOTO_DIR  = os.path.join(BASE_DIR, "photo")
+LOGS_DIR   = os.path.join(BASE_DIR, "logs")
 
-# 输出目录配置
-OUTPUT_DIR = os.path.join(BASE_DIR, 'output')
-JSON_DIR = os.path.join(BASE_DIR, 'json')
-PHOTO_DIR = os.path.join(BASE_DIR, 'photo')
-LOGS_DIR = os.path.join(BASE_DIR, 'logs')
+for _d in (OUTPUT_DIR, JSON_DIR, PHOTO_DIR, LOGS_DIR):
+    os.makedirs(_d, exist_ok=True)
 
-# 创建基础目录
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-os.makedirs(JSON_DIR, exist_ok=True)
-os.makedirs(PHOTO_DIR, exist_ok=True)
-os.makedirs(LOGS_DIR, exist_ok=True)
-
-# 网络请求配置
+# ── 网络请求 ──────────────────────────────────────────────────
 REQUEST_TIMEOUT = 15
-MAX_RETRIES = 3
+MAX_RETRIES     = 3
 
-# 速率限制配置
-# 基础请求延迟配置
-# 这些基本没有速度限制
-REQUEST_DELAY = 1  # 通用请求间隔时间（秒）
-TAG_POST_REQUEST_DELAY = 0.05  # 标签帖子请求间隔时间（秒）
-COLLECTION_REQUEST_DELAY = 0.5 # 合集请求间隔时间（秒）
-POST_DETAIL_REQUEST_DELAY = 0.2  # 帖子详情请求间隔时间（秒）
-BETWEEN_PAGES_DELAY = 0.5  # 页面间请求间隔时间（秒）
-BETWEEN_BATCHES_DELAY = 1.0  # 批处理间间隔时间（秒）
+# ── 速率限制（秒） ────────────────────────────────────────────
+REQUEST_DELAY             = 1.0
+TAG_POST_REQUEST_DELAY    = 0.05
+COLLECTION_REQUEST_DELAY  = 0.5
+POST_DETAIL_REQUEST_DELAY = 0.2
+BETWEEN_PAGES_DELAY       = 0.5
+BETWEEN_BATCHES_DELAY     = 1.0
 
+# ── 评论延迟（秒） ────────────────────────────────────────────
+COMMENT_REQUEST_DELAY    = 0.05
+L2_COMMENT_REQUEST_DELAY = 1.0
+COMMENT_MAX_WORKERS      = 5
 
-# 评论请求配置
-# 评论根据观察L1没有限制速度，但是L2有较严格的限制，当前配置已经是在不触发速度限制下L2获取最快的
-COMMENT_REQUEST_DELAY = 0.05  # 评论请求间隔时间（秒）
-L2_COMMENT_REQUEST_DELAY = 1 # L2评论请求间隔时间（秒）
-COMMENT_MAX_WORKERS = 5 # 评论处理的最大工作线程数，
+# ── 并发 ──────────────────────────────────────────────────────
+PHOTO_MAX_WORKERS    = 5   # 图片下载线程数（始终生效）
+TEXT_MAX_WORKERS     = 10
+DEFAULT_POST_WORKERS = 1   # 帖子级并发（1 = 单线程，--threads N 可覆盖）
 
-
-# 并发配置
-PHOTO_MAX_WORKERS = 5
-TEXT_MAX_WORKERS = 10
-
-# tag帖子配置
-DEFAULT_LIST_TYPE = "total" 
-DEFAULT_TIME_LIMIT = "" #时间限制，空字符串表示不限制
-DEFAULT_BLOG_TYPE = "0" # 博客类型
-
+# ── 标签默认参数 ──────────────────────────────────────────────
+DEFAULT_LIST_TYPE  = "total"
+DEFAULT_TIME_LIMIT = ""     # 空字符串 = 不限制时间
+DEFAULT_BLOG_TYPE  = "0"
